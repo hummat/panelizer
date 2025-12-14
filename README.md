@@ -1,4 +1,4 @@
-# Comic Panel Reader (Working Title)
+# Panel Flow
 
 A pragmatic, human-in-the-loop system for **panel-by-panel comic reading** from **local, DRM-free files** (CBZ/PDF), combining classic computer vision, modern foundation models, and a lightweight cross-platform viewer.
 
