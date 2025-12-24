@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to CLI coding agents when working with code in this repository.
 
 ## Project Overview
 
 Panel Flow is a pragmatic, human-in-the-loop system for panel-by-panel comic reading from local, DRM-free files (CBZ/PDF). It combines classic computer vision, modern foundation models, and a lightweight cross-platform viewer.
 
-**Current Status:** Early-stage design/prototyping. No implementation code exists yet. Most contribution activity is expected to refine the architecture, data formats, and roadmap described in `README.md`.
+**Current Status:** Early-stage prototyping. Core detection modules under development.
 
 ## Architecture Philosophy
 
@@ -22,12 +22,7 @@ Detection results are treated as **proposals**, not ground truth. User overrides
 
 ## Project Structure & Module Organization
 
-Current files:
-- `README.md`: architecture overview, pipeline stages, and proposed JSON formats
-- `LICENSE`: project licensing
-- `.gitignore`: local tooling/venv and editor artifacts (currently Python-oriented)
-
-When adding implementation code, keep the top-level tidy and prefer a predictable layout:
+Project layout:
 - `src/`: core library modules (extraction, detection, ordering, metadata schema)
 - `tests/`: automated tests with synthetic/public-domain inputs (never copyrighted comics)
 - `docs/`: extended design notes that would bloat the README
@@ -84,9 +79,24 @@ When implementing stages, refer to these projects:
 
 ## Build, Test, and Development Commands
 
-**None standardized yet.** When introducing a toolchain:
-- Add "Quickstart" section to README.md (install + run)
-- Provide minimal command surface: `make test`, `make fmt`, `make lint`, `make dev`
+Uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
+```bash
+# Setup
+uv sync
+
+# Format (ruff)
+uv run ruff format .
+
+# Lint (ruff + pyright)
+uv run ruff check .
+uv run pyright
+
+# Test (pytest with coverage, 80% minimum)
+uv run pytest
+```
+
+Run in order: format → lint → test. All must pass before commit.
 
 ## Commit & Pull Request Guidelines
 
@@ -94,6 +104,7 @@ When implementing stages, refer to these projects:
 - Follow existing patterns visible in git history
 - PRs should include: clear description, motivation, and any spec changes to `README.md`
 - For UI/viewer work, include screenshots/GIFs and note input device coverage (mouse/touch)
+- **Keep docs in sync:** Update `AGENTS.md` and `README.md` when adding/changing tooling, architecture, or project structure
 
 ## Security & Configuration Tips
 

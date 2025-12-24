@@ -315,6 +315,20 @@ Current focus:
 
 ---
 
+## Development
+
+```bash
+uv sync                  # install dependencies
+uv run ruff format .     # format
+uv run ruff check .      # lint
+uv run pyright           # type check
+uv run pytest            # test (80% coverage required)
+```
+
+See `AGENTS.md` for contribution guidelines.
+
+---
+
 ## References
 
 ### Detection
