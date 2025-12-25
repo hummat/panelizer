@@ -9,12 +9,22 @@ from .pipeline import detect_panels
 
 
 class CVDetector:
-    def __init__(self, min_panel_ratio: float = 0.1) -> None:
+    def __init__(
+        self,
+        min_panel_ratio: float = 0.1,
+        *,
+        panel_expansion: bool = True,
+        small_panel_grouping: bool = True,
+        big_panel_grouping: bool = True,
+    ) -> None:
         """
         Initialize CV detector.
         min_panel_ratio: minimum panel size as fraction of page dimensions (default 0.1 = 10%)
         """
         self.min_panel_ratio = min_panel_ratio
+        self.panel_expansion = panel_expansion
+        self.small_panel_grouping = small_panel_grouping
+        self.big_panel_grouping = big_panel_grouping
 
     def detect(self, image: Image.Image) -> Tuple[List[Panel], float]:
         """
@@ -25,7 +35,13 @@ class CVDetector:
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
         # Run detection pipeline
-        internal_panels, split_coverages = detect_panels(img, self.min_panel_ratio)
+        internal_panels, split_coverages = detect_panels(
+            img,
+            self.min_panel_ratio,
+            panel_expansion=self.panel_expansion,
+            small_panel_grouping=self.small_panel_grouping,
+            big_panel_grouping=self.big_panel_grouping,
+        )
 
         # Convert to schema Panel objects
         panels = []
@@ -44,9 +60,7 @@ class CVDetector:
 
         return panels, float(confidence)
 
-    def _compute_confidence(
-        self, panels: List[Panel], split_coverages: List[float], page_area: int
-    ) -> float:
+    def _compute_confidence(self, panels: List[Panel], split_coverages: List[float], page_area: int) -> float:
         """
         Compute overall detection confidence based on multiple signals.
         """

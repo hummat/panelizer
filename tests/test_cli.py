@@ -55,6 +55,28 @@ class TestCLI:
             assert "pages" in data
             assert len(data["pages"]) == 2
 
+    def test_process_pages_subset(self) -> None:
+        runner = CliRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cbz_path = Path(tmpdir) / "test.cbz"
+            output_path = Path(tmpdir) / "test.panels.json"
+
+            with zipfile.ZipFile(cbz_path, "w") as z:
+                for i in range(10):
+                    img = Image.new("RGB", (200, 150), color=(255, 255, 255))
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    z.writestr(f"page{i:03d}.png", buf.getvalue())
+
+            result = runner.invoke(cli, ["process", str(cbz_path), "-o", str(output_path), "--pages", "1-5"])
+            assert result.exit_code == 0
+
+            with open(output_path) as f:
+                data = json.load(f)
+            assert len(data["pages"]) == 5
+            assert [p["index"] for p in data["pages"]] == [0, 1, 2, 3, 4]
+
     def test_process_rtl_direction(self) -> None:
         runner = CliRunner()
 
@@ -68,9 +90,7 @@ class TestCLI:
                 img.save(buf, format="PNG")
                 z.writestr("page001.png", buf.getvalue())
 
-            result = runner.invoke(
-                cli, ["process", str(cbz_path), "-o", str(output_path), "-d", "rtl"]
-            )
+            result = runner.invoke(cli, ["process", str(cbz_path), "-o", str(output_path), "-d", "rtl"])
 
             assert result.exit_code == 0
 
@@ -142,9 +162,7 @@ class TestCLI:
 
             # Mock subprocess.run to avoid opening actual viewer
             with patch("panel_flow.__main__.subprocess.run") as mock_run:
-                result = runner.invoke(
-                    cli, ["visualize", str(cbz_path), str(json_path), "-o", str(viz_dir)]
-                )
+                result = runner.invoke(cli, ["visualize", str(cbz_path), str(json_path), "-o", str(viz_dir)])
 
                 assert result.exit_code == 0
                 assert "Rendering pages" in result.output
@@ -162,3 +180,54 @@ class TestCLI:
         result = runner.invoke(cli, ["visualize", "--help"])
         assert result.exit_code == 0
         assert "visualize" in result.output.lower()
+
+    def test_visualize_pages_subset(self) -> None:
+        runner = CliRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cbz_path = Path(tmpdir) / "test.cbz"
+            json_path = Path(tmpdir) / "test.panels.json"
+            viz_dir = Path(tmpdir) / "viz"
+
+            with zipfile.ZipFile(cbz_path, "w") as z:
+                for i in range(3):
+                    img = Image.new("RGB", (400, 300), color=(255, 255, 255))
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    z.writestr(f"page{i:03d}.png", buf.getvalue())
+
+            json_data = {
+                "version": 1,
+                "book_hash": "sha256:abc123",
+                "pages": [
+                    {
+                        "index": i,
+                        "size": [400, 300],
+                        "panels": [{"id": "p-0", "bbox": [10, 10, 100, 100], "confidence": 0.9}],
+                        "order": ["p-0"],
+                        "order_confidence": 0.9,
+                        "source": "cv",
+                        "user_override": False,
+                    }
+                    for i in range(3)
+                ],
+                "overrides": {},
+                "metadata": {
+                    "reading_direction": "ltr",
+                    "created": "2024-12-25T00:00:00",
+                    "tool_version": "0.1.0",
+                },
+            }
+            with open(json_path, "w") as f:
+                json.dump(json_data, f)
+
+            with patch("panel_flow.__main__.subprocess.run") as mock_run:
+                result = runner.invoke(
+                    cli, ["visualize", str(cbz_path), str(json_path), "-o", str(viz_dir), "--pages", "2-3"]
+                )
+
+                assert result.exit_code == 0
+                assert (viz_dir / "page_0001.png").exists()
+                assert (viz_dir / "page_0002.png").exists()
+                assert not (viz_dir / "page_0000.png").exists()
+                mock_run.assert_called_once()

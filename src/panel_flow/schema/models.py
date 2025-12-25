@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -44,7 +44,7 @@ class PageOverride(BaseModel):
 
 class BookMetadata(BaseModel):
     reading_direction: ReadingDirection = ReadingDirection.LTR
-    created: datetime = Field(default_factory=datetime.utcnow)
+    created: datetime = Field(default_factory=lambda: datetime.now(UTC))
     tool_version: str
 
 

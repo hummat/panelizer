@@ -15,13 +15,9 @@ class Segment:
 
         for dot in [self.a, self.b]:
             if len(dot) != 2:
-                raise ValueError(
-                    f"Creating a segment with more or less than two dots: Segment({a}, {b})"
-                )
+                raise ValueError(f"Creating a segment with more or less than two dots: Segment({a}, {b})")
             if not isinstance(dot[0], int) or not isinstance(dot[1], int):
-                raise ValueError(
-                    f"Creating a segment with non-integer coordinates: Segment({a}, {b})"
-                )
+                raise ValueError(f"Creating a segment with non-integer coordinates: Segment({a}, {b})")
 
     def __str__(self) -> str:
         return f"({self.a}, {self.b})"

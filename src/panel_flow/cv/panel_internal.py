@@ -217,15 +217,29 @@ class InternalPanel:
         all_right = self.find_all_right_panels(all_panels)
         return min(all_right, key=lambda p: p.x) if all_right else None
 
+    def find_neighbour_panel(self, direction: str, all_panels: List["InternalPanel"]) -> Optional["InternalPanel"]:
+        """
+        Find the closest neighbour panel in a given direction.
+
+        direction: one of {"x","y","r","b"} meaning left/top/right/bottom neighbour.
+        """
+        if direction == "x":
+            return self.find_left_panel(all_panels)
+        if direction == "y":
+            return self.find_top_panel(all_panels)
+        if direction == "r":
+            return self.find_right_panel(all_panels)
+        if direction == "b":
+            return self.find_bottom_panel(all_panels)
+        raise ValueError(f"Unknown direction: {direction!r}")
+
     def group_with(self, other: "InternalPanel") -> "InternalPanel":
         """Create a panel that encompasses both this panel and another."""
         min_x = min(self.x, other.x)
         min_y = min(self.y, other.y)
         max_r = max(self.r, other.r)
         max_b = max(self.b, other.b)
-        return InternalPanel(
-            self.img_size, self.small_panel_ratio, xywh=(min_x, min_y, max_r - min_x, max_b - min_y)
-        )
+        return InternalPanel(self.img_size, self.small_panel_ratio, xywh=(min_x, min_y, max_r - min_x, max_b - min_y))
 
     def merge(self, other: "InternalPanel", all_panels: List["InternalPanel"]) -> "InternalPanel":
         """
@@ -237,33 +251,25 @@ class InternalPanel:
         # expand self in all four directions where other is
         if other.x < self.x:
             possible_panels.append(
-                InternalPanel.from_xyrb(
-                    self.img_size, self.small_panel_ratio, other.x, self.y, self.r, self.b
-                )
+                InternalPanel.from_xyrb(self.img_size, self.small_panel_ratio, other.x, self.y, self.r, self.b)
             )
 
         if other.r > self.r:
             for pp in possible_panels.copy():
                 possible_panels.append(
-                    InternalPanel.from_xyrb(
-                        self.img_size, self.small_panel_ratio, pp.x, pp.y, other.r, pp.b
-                    )
+                    InternalPanel.from_xyrb(self.img_size, self.small_panel_ratio, pp.x, pp.y, other.r, pp.b)
                 )
 
         if other.y < self.y:
             for pp in possible_panels.copy():
                 possible_panels.append(
-                    InternalPanel.from_xyrb(
-                        self.img_size, self.small_panel_ratio, pp.x, other.y, pp.r, pp.b
-                    )
+                    InternalPanel.from_xyrb(self.img_size, self.small_panel_ratio, pp.x, other.y, pp.r, pp.b)
                 )
 
         if other.b > self.b:
             for pp in possible_panels.copy():
                 possible_panels.append(
-                    InternalPanel.from_xyrb(
-                        self.img_size, self.small_panel_ratio, pp.x, pp.y, pp.r, other.b
-                    )
+                    InternalPanel.from_xyrb(self.img_size, self.small_panel_ratio, pp.x, pp.y, pp.r, other.b)
                 )
 
         # don't take a merged panel that bumps into other panels on page

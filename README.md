@@ -242,7 +242,7 @@ iOS notes:
   },
   "metadata": {
     "reading_direction": "ltr",
-    "created": "2025-01-15T10:30:00Z",
+    "created": "2025-01-15T10:30:00+00:00",
     "tool_version": "0.1.0"
   }
 }
