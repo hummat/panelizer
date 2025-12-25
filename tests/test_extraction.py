@@ -118,3 +118,41 @@ class TestExtractor:
             assert len(pages) == 1
         finally:
             zip_path.unlink()
+
+    def test_single_image_jpg(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+            img_path = Path(f.name)
+
+        try:
+            # Create a test image
+            img = Image.new("RGB", (200, 150), color=(100, 150, 200))
+            img.save(img_path, format="JPEG")
+
+            extractor = Extractor(img_path)
+            pages = list(extractor.iter_pages())
+
+            assert len(pages) == 1
+            assert pages[0][0] == 0  # index 0
+            assert isinstance(pages[0][1], Image.Image)
+            assert pages[0][1].size == (200, 150)
+        finally:
+            img_path.unlink()
+
+    def test_single_image_png(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
+            img_path = Path(f.name)
+
+        try:
+            # Create a test image
+            img = Image.new("RGB", (300, 200), color=(255, 128, 64))
+            img.save(img_path, format="PNG")
+
+            extractor = Extractor(img_path)
+            pages = list(extractor.iter_pages())
+
+            assert len(pages) == 1
+            assert pages[0][0] == 0
+            assert isinstance(pages[0][1], Image.Image)
+            assert pages[0][1].size == (300, 200)
+        finally:
+            img_path.unlink()

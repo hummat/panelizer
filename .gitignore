@@ -19,6 +19,8 @@ dist/
 coverage.xml
 htmlcov/
 
+.vscode
+
 CLAUDE.md
 GEMINI.md
 QWEN.md

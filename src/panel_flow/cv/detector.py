@@ -5,62 +5,77 @@ import numpy as np
 from PIL import Image
 
 from ..schema import Panel
+from .pipeline import detect_panels
 
 
 class CVDetector:
+    def __init__(self, min_panel_ratio: float = 0.1) -> None:
+        """
+        Initialize CV detector.
+        min_panel_ratio: minimum panel size as fraction of page dimensions (default 0.1 = 10%)
+        """
+        self.min_panel_ratio = min_panel_ratio
+
     def detect(self, image: Image.Image) -> Tuple[List[Panel], float]:
         """
-        Detects panels in a PIL image using classic CV.
+        Detects panels in a PIL image using Kumiko-based CV pipeline.
         Returns a list of Panels and a confidence score.
         """
         # Convert PIL to OpenCV (BGR)
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 1. Gaussian Blur
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Run detection pipeline
+        internal_panels, split_coverages = detect_panels(img, self.min_panel_ratio)
 
-        # 2. Adaptive Threshold
-        thresh = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
-        )
-
-        # 3. Contour Detection
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+        # Convert to schema Panel objects
         panels = []
-        page_area = img.shape[0] * img.shape[1]
-
-        for i, cnt in enumerate(contours):
-            x, y, w, h = cv2.boundingRect(cnt)
-            area = w * h
-
-            # Filter out noise (tiny contours or extreme aspect ratios)
-            if area < page_area * 0.01:  # Less than 1% of page
-                continue
-            if (
-                w > img.shape[1] * 0.95 and h > img.shape[0] * 0.95
-            ):  # Probably the whole page border
-                continue
-
+        for i, p in enumerate(internal_panels):
+            x, y, w, h = p.to_xywh()
             panels.append(
                 Panel(
                     id=f"p-{i}",
                     bbox=(x, y, w, h),
-                    confidence=0.9,  # Base confidence for CV detection
+                    confidence=0.9,  # Individual panel confidence
                 )
             )
 
-        # 4. Confidence Estimation
-        # Simple heuristic: if we found 2-10 panels and they cover a good chunk of the page
-        detected_area = sum(p.bbox[2] * p.bbox[3] for p in panels)
-        coverage = detected_area / page_area
-
-        # Penalty if coverage is too low or too high (single panel usually means failure)
-        confidence = 0.5
-        if 2 <= len(panels) <= 12:
-            confidence = min(1.0, coverage * 1.2)
-        elif len(panels) == 1:
-            confidence = 0.3  # Single panel detected is suspicious in comics unless splash
+        # Calculate overall confidence
+        confidence = self._compute_confidence(panels, split_coverages, img.shape[1] * img.shape[0])
 
         return panels, float(confidence)
+
+    def _compute_confidence(
+        self, panels: List[Panel], split_coverages: List[float], page_area: int
+    ) -> float:
+        """
+        Compute overall detection confidence based on multiple signals.
+        """
+        if not panels:
+            return 0.1
+
+        # 1. Panel count factor (2-12 is healthy)
+        n = len(panels)
+        if 2 <= n <= 12:
+            count_factor = 1.0
+        elif n == 1:
+            count_factor = 0.7  # Could be splash page
+        else:
+            count_factor = 0.5  # Too many panels, likely over-split
+
+        # 2. Coverage factor (70-95% is healthy)
+        panel_area = sum(p.bbox[2] * p.bbox[3] for p in panels)
+        coverage = panel_area / page_area
+        if 0.7 <= coverage <= 0.95:
+            coverage_factor = 1.0
+        else:
+            coverage_factor = 0.8
+
+        # 3. Split quality factor
+        if split_coverages:
+            split_factor = sum(split_coverages) / len(split_coverages)
+        else:
+            split_factor = 0.8  # No splits needed, assume okay
+
+        # Combine factors (geometric mean to penalize weak signals)
+        confidence = (count_factor * coverage_factor * split_factor) ** (1 / 3)
+        return min(1.0, max(0.0, confidence))

@@ -18,6 +18,8 @@ class Extractor:
             yield from self._iter_cbz()
         elif self.suffix == ".pdf":
             yield from self._iter_pdf()
+        elif self.suffix in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+            yield from self._iter_image()
         else:
             raise ValueError(f"Unsupported file format: {self.suffix}")
 
@@ -40,3 +42,8 @@ class Extractor:
             img_data = pix.tobytes("png")
             yield i, Image.open(io.BytesIO(img_data)).convert("RGB")
         doc.close()
+
+    def _iter_image(self) -> Iterator[Tuple[int, Image.Image]]:
+        """Process a single image file."""
+        img = Image.open(self.file_path).convert("RGB")
+        yield 0, img
