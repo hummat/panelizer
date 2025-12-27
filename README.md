@@ -8,45 +8,47 @@ This project aims to close that gap.
 
 ---
 
-## Prior art
+## Prior art & Analysis
+
+We have conducted deep technical analyses of existing tools to inform Panelizer's architecture.
 
 ### Detection tools (no integrated reader)
 
-| Tool | Method | Output | Notes |
-|------|--------|--------|-------|
-| **[Kumiko](https://github.com/njean42/kumiko)** | OpenCV contours | JSON bboxes | Active. Good reference for CV approach. Planned but unimplemented editor. |
-| **[C.A.P.E.](https://github.com/CodeMinion/C.A.P.E)** | OpenCV + Electron editor | JSON bboxes | **Closest to this project's vision.** Has human-in-loop editor. No viewer. Desktop only. Semi-abandoned. |
-| **[DeepPanel](https://github.com/pedrovgs/DeepPanel)** | CNN (TFLite) | Bboxes | Mobile-optimized (Android/iOS libs). ~400ms/page. No ordering. Apache 2.0. |
-| **[best-comic-panel-detection](https://huggingface.co/mosesb/best-comic-panel-detection)** | YOLOv12 | Bboxes | mAP ~99%. Apache 2.0. Drop-in for Stage 2. |
-| **[segment-anything-comic](https://github.com/Vrroom/segment-anything-comic)** | SAM fine-tuned | Polygons | Handles irregular panels. Research-grade. Apache 2.0. |
-| **[Magi](https://github.com/ragavsachdeva/magi)** | Deep learning | Panels + order + OCR | **Only open tool that does reading order.** Manga-focused. Apache 2.0. |
+| Tool | Method | Analysis | Notes |
+|------|--------|----------|-------|
+| **[Kumiko](https://github.com/njean42/kumiko)** | OpenCV contours | [Analysis](docs/kumiko-analysis.md) | Active. Primary reference for our Stage 1 CV. |
+| **[C.A.P.E.](https://github.com/CodeMinion/C.A.P.E)** | OpenCV + Editor | [Analysis](docs/cape-analysis.md) | **Closest vision.** pioneered the "User is Sacred" override philosophy. |
+| **[DeepPanel](https://github.com/pedrovgs/DeepPanel)** | CNN (TFLite) | [Analysis](docs/deeppanel-analysis.md) | Mobile-optimized. Good reference for native apps. |
+| **[best-comic-panel-detection](https://huggingface.co/mosesb/best-comic-panel-detection)** | YOLOv12 | [Analysis](docs/yolov12-analysis.md) | mAP ~99%. Our choice for Stage 2 ML fallback. |
+| **[segment-anything-comic](https://github.com/Vrroom/segment-anything-comic)** | SAM fine-tuned | [Analysis](docs/sam-comic-analysis.md) | Handles irregular polygons. Research-grade. |
+| **[Magi](https://github.com/ragavsachdeva/magi)** | Deep learning | [Analysis](docs/magi-analysis.md) | **Only tool that does reading order.** Manga-focused. |
 
 ### Readers with panel detection
 
-| Tool | Detection | Viewer | Editing | Status |
-|------|-----------|--------|---------|--------|
-| **[BDReader](https://sourceforge.net/projects/bdreader/)** | Heuristics | Desktop (Qt) | None | Abandoned (~2015) |
-| **[Comic Smart Panels](https://github.com/zoran123456/Comic-Smart-Panels)** | Manual only | Windows app | Full manual | Abandoned (2015) |
-| **[Panels app](https://panels.app/)** | ML (proprietary) | iOS/Android | None | Commercial, experimental |
-| **Comic Trim** | Heuristics | Android | None | Discontinued. ~25% accuracy. |
+| Tool | Detection | Analysis | Status |
+|------|-----------|----------|--------|
+| **[BDReader](https://sourceforge.net/projects/bdreader/)** | Heuristics | [Analysis](docs/bdreader-analysis.md) | Abandoned. Shows limits of pure heuristics. |
+| **[Comic Smart Panels](https://github.com/zoran123456/Comic-Smart-Panels)** | Manual | [Analysis](docs/comic-smart-panels-analysis.md) | Good "Creator" UI patterns. |
+| **[Panels app](https://panels.app/)** | ML (Proprietary) | [Analysis](docs/panels-app-analysis.md) | **Sunsetting / Open Source** (Jan 2026). The UX bar to beat. |
+| **[Comic Trim](https://play.google.com/store/apps/details?id=com.comic.trim)** | Heuristics | [Analysis](docs/comic-trim-analysis.md) | Android-only. Fails on complex layouts. |
 
-### Commercial
+### Commercial Ecosystem
 
-- **Comixology Guided View** — Manual curation by publishers. Gold standard UX, but locked ecosystem.
-- **Marvel Smart Panels** — Similar to Comixology, proprietary.
+- **[Comixology Guided View](docs/comixology-analysis.md)** — The industry standard for "cinematic" reading.
+- **[Marvel Smart Panels](docs/marvel-smart-panels-analysis.md)** — Narrative-focused adaptive zooming.
 
 ### Gap analysis
 
-| Stage | Kumiko | C.A.P.E. | Magi | BDReader | Panels app | **This project** |
-|-------|--------|----------|------|----------|------------|------------------|
-| CV detection | ✓ | ✓ | — | ✓ | — | ✓ |
-| ML fallback | — | — | ✓ | — | ✓ | ✓ |
-| Reading order | Heuristic | Heuristic | ✓ | Heuristic | ? | ✓ (VLM) |
-| Human editing | Planned | ✓ | — | — | — | ✓ |
-| Viewer | Basic | — | — | ✓ | ✓ | ✓ (PWA) |
-| Cross-platform | Desktop | Desktop | Desktop | Desktop | Mobile | Web/Mobile |
+| Stage | Kumiko | C.A.P.E. | Magi | Panels app | **Panelizer** |
+|-------|--------|----------|------|------------|---------------|
+| CV detection | ✓ | ✓ | — | — | ✓ |
+| ML fallback | — | — | ✓ | ✓ | ✓ |
+| Reading order | Heuristic | Heuristic | ✓ | ? | ✓ (VLM) |
+| Human editing | Planned | ✓ | — | — | ✓ |
+| Viewer | Basic | — | — | ✓ | ✓ (PWA) |
+| Cross-platform | Desktop | Desktop | Desktop | Mobile | Web/Mobile |
 
-**Differentiation from C.A.P.E.:** C.A.P.E. is desktop Electron, no viewer, no ML fallback, no reading order inference. This project is web-first (PWA), includes viewer, uses ML for hard pages, and optionally VLM for ordering.
+See **[Architecture Decisions](docs/architecture-decisions.md)** for how these analyses shaped our technical strategy.
 
 ---
 
