@@ -10,6 +10,8 @@ Panelizer is a pragmatic, human-in-the-loop system for panel-by-panel comic read
 
 ## Architecture Philosophy
 
+> **See [docs/architecture-decisions.md](docs/architecture-decisions.md) for the "Main Results" of our competitive analysis and detailed architectural rules.**
+
 The system uses a staged detection pipeline where each technique handles what it does best:
 
 1. **Stage 1 - Classic CV (on-device):** Fast, offline contour detection for "easy" pages
@@ -89,14 +91,14 @@ uv sync
 uv run ruff format .
 
 # Lint (ruff + pyright)
-uv run ruff check .
+uv run ruff check . --fix
 uv run pyright
 
 # Test (pytest with coverage, 80% minimum)
 uv run pytest
 ```
 
-Run in order: format → lint → test. All must pass before commit.
+Run in order: `ruff format` → `ruff check . --fix` → `pyright` → `pytest`. All must pass before commit.
 
 ## Commit & Pull Request Guidelines
 
@@ -142,11 +144,8 @@ Run in order: format → lint → test. All must pass before commit.
 
 Items ported from Kumiko but not yet enabled:
 
-1. `expand_panels()` — Fill panels to gutter edges (improves bbox accuracy)
-2. `group_small_panels()` — Cluster tiny adjacent panels into one
-3. `group_big_panels()` — Merge adjacent panels with no detected gutters
-4. Debug visualization flag — Save intermediate pipeline steps for tuning
-5. EPUB support — Would need HTML parsing + embedded image extraction
+1. Debug visualization flag — Save intermediate pipeline steps for tuning
+2. EPUB support — Would need HTML parsing + embedded image extraction
 
 ## Non-Goals
 

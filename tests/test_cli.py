@@ -8,7 +8,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from PIL import Image
 
-from panelizer.__main__ import cli
+from panelizer.__main__ import cli, parse_pages_specs
 
 
 class TestCLI:
@@ -231,3 +231,46 @@ class TestCLI:
                 assert (viz_dir / "page_0002.png").exists()
                 assert not (viz_dir / "page_0000.png").exists()
                 mock_run.assert_called_once()
+
+    def test_preview_command_starts_and_stops(self) -> None:
+        runner = CliRunner()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_path = Path(tmpdir) / "page.png"
+            Image.new("RGB", (64, 64), color=(255, 255, 255)).save(img_path, format="PNG")
+
+            class DummyServer:
+                def __init__(self) -> None:
+                    self.closed = False
+
+                def serve_forever(self) -> None:
+                    raise KeyboardInterrupt()
+
+                def server_close(self) -> None:
+                    self.closed = True
+
+            dummy = DummyServer()
+
+            with patch("panelizer.__main__.create_preview_server", return_value=(dummy, "http://127.0.0.1:12345/")):
+                with patch("panelizer.__main__.webbrowser.open") as mock_open:
+                    result = runner.invoke(cli, ["preview", str(img_path), "--no-open"])
+
+            assert result.exit_code == 0
+            assert "Preview running at" in result.output
+            assert "http://127.0.0.1:12345/" in result.output
+            assert dummy.closed is True
+            mock_open.assert_not_called()
+
+
+class TestParsePagesSpecs:
+    def test_empty_is_none(self) -> None:
+        assert parse_pages_specs(()) is None
+
+    def test_single_page(self) -> None:
+        assert parse_pages_specs(("3",)) == {2}
+
+    def test_range(self) -> None:
+        assert parse_pages_specs(("1-3",)) == {0, 1, 2}
+
+    def test_multiple_ranges(self) -> None:
+        assert parse_pages_specs(("1-2,5-6",)) == {0, 1, 4, 5}

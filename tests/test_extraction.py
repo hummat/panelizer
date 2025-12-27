@@ -3,6 +3,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import fitz
 import pytest
 from PIL import Image
 
@@ -156,3 +157,76 @@ class TestExtractor:
             assert pages[0][1].size == (300, 200)
         finally:
             img_path.unlink()
+
+    def test_page_count_and_get_page_cbz(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".cbz") as f:
+            cbz_path = Path(f.name)
+
+        try:
+            with zipfile.ZipFile(cbz_path, "w") as z:
+                for i in range(2):
+                    img = Image.new("RGB", (120, 90), color=(10 * i, 0, 0))
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    z.writestr(f"page{i:03d}.png", buf.getvalue())
+
+            extractor = Extractor(cbz_path)
+            assert extractor.page_count() == 2
+
+            p0 = extractor.get_page(0)
+            assert isinstance(p0, Image.Image)
+            assert p0.size == (120, 90)
+
+            p1 = extractor.get_page(1)
+            assert isinstance(p1, Image.Image)
+            assert p1.size == (120, 90)
+        finally:
+            cbz_path.unlink()
+
+    def test_page_count_and_get_page_single_image(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
+            img_path = Path(f.name)
+
+        try:
+            img = Image.new("RGB", (64, 48), color=(1, 2, 3))
+            img.save(img_path, format="PNG")
+
+            extractor = Extractor(img_path)
+            assert extractor.page_count() == 1
+            p0 = extractor.get_page(0)
+            assert p0.size == (64, 48)
+        finally:
+            img_path.unlink()
+
+    def test_get_page_out_of_range_raises(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
+            img_path = Path(f.name)
+
+        try:
+            img = Image.new("RGB", (32, 32), color=(255, 255, 255))
+            img.save(img_path, format="PNG")
+
+            extractor = Extractor(img_path)
+            with pytest.raises(IndexError):
+                extractor.get_page(1)
+        finally:
+            img_path.unlink()
+
+    def test_pdf_page_count_and_get_page(self) -> None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            pdf_path = Path(f.name)
+
+        try:
+            doc = fitz.open()
+            doc.new_page(width=200, height=120)
+            doc.save(pdf_path)
+            doc.close()
+
+            extractor = Extractor(pdf_path)
+            assert extractor.page_count() == 1
+
+            img = extractor.get_page(0)
+            assert isinstance(img, Image.Image)
+            assert img.size[0] > 0 and img.size[1] > 0
+        finally:
+            pdf_path.unlink()

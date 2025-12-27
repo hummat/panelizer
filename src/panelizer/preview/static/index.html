@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Panelizer Preview</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">Panelizer Preview</div>
+        <div class="meta" id="meta"></div>
+      </header>
+
+      <main class="main">
+        <section class="controls">
+          <div class="row">
+            <button id="prevPage" type="button">Prev page</button>
+            <button id="nextPage" type="button">Next page</button>
+            <div class="spacer"></div>
+            <button id="toggleMode" type="button">Panel view</button>
+            <button id="toggleOverlay" type="button">Overlay on</button>
+          </div>
+          <div class="row">
+            <button id="prevPanel" type="button">Prev panel</button>
+            <button id="nextPanel" type="button">Next panel</button>
+            <div class="spacer"></div>
+            <input id="pageJump" type="number" min="1" step="1" inputmode="numeric" />
+            <button id="goPage" type="button">Go</button>
+          </div>
+          <div class="hint" id="hint">
+            Keys: ←/→ panel, Shift+←/→ page, Space toggle view
+          </div>
+        </section>
+
+        <section class="viewer">
+          <div id="viewport" class="viewport" tabindex="0" aria-label="Viewer viewport">
+            <img id="pageImage" alt="Comic page" />
+            <div id="overlay" class="overlay" aria-hidden="true"></div>
+          </div>
+          <div class="status" id="status"></div>
+          <div class="error" id="error" hidden></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

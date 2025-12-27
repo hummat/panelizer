@@ -32,6 +32,8 @@ class Page(BaseModel):
     order_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     source: DetectionSource
     user_override: bool = False
+    gutters: Optional[Tuple[int, int]] = Field(None, description="[x_gutter, y_gutter] in pixels")
+    processing_time: Optional[float] = Field(None, description="Detection time in seconds")
 
 
 class PanelOverride(BaseModel):

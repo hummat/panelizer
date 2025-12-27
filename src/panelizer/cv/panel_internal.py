@@ -20,11 +20,13 @@ class InternalPanel:
         xywh: Optional[Tuple[int, int, int, int]] = None,
         polygon: Optional[np.ndarray] = None,
         splittable: bool = True,
+        split_coverage: Optional[float] = None,
     ) -> None:
         """
         Create panel from either xywh or polygon.
         img_size: (width, height) of source image
         small_panel_ratio: minimum panel size as fraction of image dimensions
+        split_coverage: if created via split, the segment coverage (0-1)
         """
         self.img_size = img_size
         self.small_panel_ratio = small_panel_ratio
@@ -49,6 +51,7 @@ class InternalPanel:
         self.polygon = polygon
         self.splittable = splittable
         self.segments: Optional[List[Segment]] = None
+        self.split_coverage = split_coverage  # Track how this panel was created
 
     @staticmethod
     def from_xyrb(

@@ -1,11 +1,14 @@
 import math
-from typing import Callable, Dict, List, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import cv2 as cv
 import numpy as np
 
 from .panel_internal import InternalPanel
 from .segment import Segment
+
+if TYPE_CHECKING:
+    from .debug import DebugContext
 
 
 def sobel_edges(gray: np.ndarray) -> np.ndarray:
@@ -93,6 +96,8 @@ def split_panels(panels: List[InternalPanel], segments: List[Segment]) -> Tuple[
     """
     Iteratively split panels using detected segments.
     Continues until no more panels can be split.
+
+    Sets split_coverage on each subpanel created via splitting.
     """
     split_coverages: List[float] = []
     did_split = True
@@ -104,8 +109,12 @@ def split_panels(panels: List[InternalPanel], segments: List[Segment]) -> Tuple[
             if split is not None:
                 did_split = True
                 panels.remove(p)
+                coverage = split.segments_coverage()
+                # Set split_coverage on each subpanel
+                for subpanel in split.subpanels:
+                    subpanel.split_coverage = coverage
                 panels += split.subpanels
-                split_coverages.append(split.segments_coverage())
+                split_coverages.append(coverage)
                 break
 
     return panels, split_coverages
@@ -328,41 +337,89 @@ def detect_panels(
     panel_expansion: bool = True,
     small_panel_grouping: bool = True,
     big_panel_grouping: bool = True,
+    debug: Optional["DebugContext"] = None,
 ) -> Tuple[List[InternalPanel], List[float]]:
     """
     Main detection pipeline.
     Returns panels and list of split coverage scores for confidence calculation.
+
+    Args:
+        img: BGR image (OpenCV format)
+        min_panel_ratio: Minimum panel size as fraction of image dimensions
+        panel_expansion: Whether to expand panels to fill gutters
+        small_panel_grouping: Whether to group small nearby panels
+        big_panel_grouping: Whether to group large adjacent panels
+        debug: Optional debug context for step-by-step visualization
     """
     img_size = (img.shape[1], img.shape[0])  # (width, height)
+
+    # Debug: set base image
+    if debug and debug.enabled:
+        debug.set_base_image(img)
+        debug.add_step("Input image", [])
+        debug.add_image("Input image")
+
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    if debug and debug.enabled:
+        debug.add_image("Grayscale", gray)
 
     # 1. Sobel edge detection
     sobel = sobel_edges(gray)
+    if debug and debug.enabled:
+        debug.add_image("Sobel edges", sobel)
 
     # 2. Threshold + contours
     contours = get_contours(sobel)
+    if debug and debug.enabled:
+        debug.draw_contours(contours)
+        debug.add_step("Contours detected", [])
+        debug.add_image("Contours")
 
     # 3. LSD gutter detection
     segments = detect_segments(gray, img_size, min_panel_ratio)
     segments = Segment.union_all(segments)
+    if debug and debug.enabled:
+        debug.draw_segments(segments)
+        debug.add_step("Segments detected", [])
+        debug.add_image("Segments")
 
     # 4. Initial panels from contours
     panels = initial_panels(contours, img_size, min_panel_ratio)
+    if debug and debug.enabled:
+        debug.draw_panels(panels)
+        debug.add_step("Initial panels", panels)
+        debug.add_image("Initial panels")
 
     if small_panel_grouping:
         panels = group_small_panels(panels)
+        if debug and debug.enabled:
+            debug.draw_panels(panels)
+            debug.add_step("Small panels grouped", panels)
+            debug.add_image("Small panels grouped")
 
     # 5. Refinement passes
     # Split panels using segments
     panels, split_coverages = split_panels(panels, segments)
+    if debug and debug.enabled:
+        debug.draw_panels(panels)
+        debug.add_step("Panels split", panels)
+        debug.add_image("Panels split")
 
     panels = exclude_small(panels, min_panel_ratio)
     panels = merge_panels(panels)
     panels = deoverlap_panels(panels)
     panels = exclude_small(panels, min_panel_ratio)
+    if debug and debug.enabled:
+        debug.draw_panels(panels)
+        debug.add_step("Panels refined", panels)
+        debug.add_image("Panels refined")
 
     if panel_expansion:
         panels = expand_panels(panels)
+        if debug and debug.enabled:
+            debug.draw_panels(panels)
+            debug.add_step("Panels expanded", panels)
+            debug.add_image("Panels expanded")
 
     # Fallback: if no panels detected, return full page as single panel
     if not panels:
@@ -370,5 +427,15 @@ def detect_panels(
 
     if big_panel_grouping:
         panels = group_big_panels(panels, segments)
+        if debug and debug.enabled:
+            debug.draw_panels(panels)
+            debug.add_step("Big panels grouped", panels)
+            debug.add_image("Big panels grouped")
+
+    # Final result
+    if debug and debug.enabled:
+        debug.draw_panels(panels, color="green")
+        debug.add_step("Final result", panels)
+        debug.add_image("Final result")
 
     return panels, split_coverages
