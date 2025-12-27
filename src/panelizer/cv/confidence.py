@@ -1,8 +1,90 @@
 """Per-panel and page-level confidence scoring heuristics."""
 
+import statistics
 from typing import List, Optional, Tuple
 
+import numpy as np
+
 from .panel_internal import InternalPanel
+
+
+def compute_edge_strength(
+    panel: InternalPanel,
+    magnitude: np.ndarray,
+    border_width: int = 3,
+) -> float:
+    """
+    Compute average gradient magnitude along a panel's border.
+
+    Args:
+        panel: The panel to analyze
+        magnitude: Precomputed gradient magnitude image (same size as original)
+        border_width: Width of border region to sample (pixels)
+
+    Returns:
+        Normalized edge strength score between 0.0 and 1.0
+    """
+    img_h, img_w = magnitude.shape[:2]
+    x, y, w, h = panel.to_xywh()
+
+    # Clamp to image bounds
+    x = max(0, min(x, img_w - 1))
+    y = max(0, min(y, img_h - 1))
+    w = min(w, img_w - x)
+    h = min(h, img_h - y)
+
+    if w <= 0 or h <= 0:
+        return 0.5
+
+    # Sample border regions
+    border_samples: List[np.ndarray] = []
+
+    # Top border
+    top_y1 = max(0, y - border_width)
+    top_y2 = min(img_h, y + border_width)
+    if top_y2 > top_y1:
+        border_samples.append(magnitude[top_y1:top_y2, x : x + w].flatten())
+
+    # Bottom border
+    bot_y1 = max(0, y + h - border_width)
+    bot_y2 = min(img_h, y + h + border_width)
+    if bot_y2 > bot_y1:
+        border_samples.append(magnitude[bot_y1:bot_y2, x : x + w].flatten())
+
+    # Left border
+    left_x1 = max(0, x - border_width)
+    left_x2 = min(img_w, x + border_width)
+    if left_x2 > left_x1:
+        border_samples.append(magnitude[y : y + h, left_x1:left_x2].flatten())
+
+    # Right border
+    right_x1 = max(0, x + w - border_width)
+    right_x2 = min(img_w, x + w + border_width)
+    if right_x2 > right_x1:
+        border_samples.append(magnitude[y : y + h, right_x1:right_x2].flatten())
+
+    if not border_samples:
+        return 0.5
+
+    # Combine all border samples
+    all_samples = np.concatenate(border_samples)
+    if len(all_samples) == 0:
+        return 0.5
+
+    # Average gradient magnitude along borders
+    avg_magnitude = float(np.mean(all_samples))
+
+    # Normalize to 0-1 score
+    # Typical strong edges have magnitudes around 50-200
+    # Weak edges are below 30
+    if avg_magnitude >= 100:
+        return 1.0
+    elif avg_magnitude >= 50:
+        return 0.7 + 0.3 * (avg_magnitude - 50) / 50
+    elif avg_magnitude >= 20:
+        return 0.4 + 0.3 * (avg_magnitude - 20) / 30
+    else:
+        return max(0.2, 0.4 * avg_magnitude / 20)
 
 
 def compute_panel_confidence(
@@ -11,6 +93,7 @@ def compute_panel_confidence(
     page_area: int,
     *,
     split_coverage: Optional[float] = None,
+    edge_strength: Optional[float] = None,
 ) -> float:
     """
     Compute confidence score for a single panel based on multiple heuristics.
@@ -21,6 +104,7 @@ def compute_panel_confidence(
     3. Rectangularity - how well the polygon fits its bounding box
     4. Gutter quality - clear, consistent gaps to neighbors
     5. Split quality - if panel was created via split, uses segment coverage
+    6. Edge strength - average gradient magnitude along panel border (if provided)
 
     Returns a score between 0.0 and 1.0.
     """
@@ -50,6 +134,11 @@ def compute_panel_confidence(
     # If panel was created via split, use the segment coverage
     if split_coverage is not None:
         scores.append((split_coverage, 0.5))
+
+    # 6. Edge strength factor (weight: 1.0)
+    # Panels with sharp, clear edges are more confident
+    if edge_strength is not None:
+        scores.append((edge_strength, 1.0))
 
     # Weighted average
     total_weight = sum(w for _, w in scores)
@@ -240,6 +329,9 @@ def compute_page_confidence(
     *,
     panel_count_factor: Optional[float] = None,
     coverage_factor: Optional[float] = None,
+    gutter_variance_factor: Optional[float] = None,
+    gutters_x: Optional[List[int]] = None,
+    gutters_y: Optional[List[int]] = None,
 ) -> float:
     """
     Compute overall page detection confidence.
@@ -248,6 +340,7 @@ def compute_page_confidence(
     1. Area-weighted mean of panel confidences
     2. Panel count reasonableness (2-12 is healthy)
     3. Page coverage (70-95% is healthy)
+    4. Gutter consistency (low variance in gutter widths is healthy)
     """
     if not panel_confidences:
         return 0.1
@@ -286,6 +379,56 @@ def compute_page_confidence(
         else:
             coverage_factor = 0.8
 
+    # 4. Gutter variance factor
+    # Comic grids usually have consistent spacing; high variance signals detection failure
+    if gutter_variance_factor is None:
+        gutter_variance_factor = _compute_gutter_variance_score(gutters_x, gutters_y)
+
     # Combine using geometric mean (penalizes weak signals)
-    combined = (weighted_conf * panel_count_factor * coverage_factor) ** (1 / 3)
+    combined = (weighted_conf * panel_count_factor * coverage_factor * gutter_variance_factor) ** (1 / 4)
     return max(0.0, min(1.0, combined))
+
+
+def _compute_gutter_variance_score(
+    gutters_x: Optional[List[int]] = None,
+    gutters_y: Optional[List[int]] = None,
+) -> float:
+    """
+    Score based on consistency of gutter widths.
+
+    Low variance = consistent grid = high confidence
+    High variance = irregular spacing = potential detection failure
+    """
+    all_gutters: List[int] = []
+    if gutters_x:
+        all_gutters.extend(gutters_x)
+    if gutters_y:
+        all_gutters.extend(gutters_y)
+
+    if len(all_gutters) < 2:
+        # Not enough data to compute variance
+        return 0.85
+
+    # Filter out negative gutters (overlaps) for variance calculation
+    positive_gutters = [g for g in all_gutters if g > 0]
+    if len(positive_gutters) < 2:
+        return 0.7  # Mostly overlapping panels
+
+    mean_gutter = statistics.mean(positive_gutters)
+    if mean_gutter == 0:
+        return 0.8
+
+    # Coefficient of variation (CV) = stdev / mean
+    # Low CV = consistent gutters
+    stdev = statistics.stdev(positive_gutters)
+    cv = stdev / mean_gutter
+
+    # Ideal: CV < 0.3 (gutters within 30% of mean)
+    # Acceptable: CV < 0.6
+    # Poor: CV >= 0.6
+    if cv < 0.3:
+        return 1.0
+    elif cv < 0.6:
+        return 0.7 + 0.3 * (0.6 - cv) / 0.3
+    else:
+        return max(0.4, 0.7 * 0.6 / cv)

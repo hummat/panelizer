@@ -11,6 +11,11 @@ if TYPE_CHECKING:
     from .debug import DebugContext
 
 
+def denoise(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
+    """Apply Gaussian blur to reduce halftone textures and scanner noise."""
+    return cv.GaussianBlur(gray, (ksize, ksize), 0)
+
+
 def sobel_edges(gray: np.ndarray) -> np.ndarray:
     """Apply Sobel edge detection to grayscale image."""
     ddepth = cv.CV_16S
@@ -24,9 +29,28 @@ def sobel_edges(gray: np.ndarray) -> np.ndarray:
     return sobel
 
 
-def get_contours(sobel: np.ndarray) -> List[np.ndarray]:
-    """Threshold and find contours from Sobel edge image."""
-    _, thresh = cv.threshold(sobel, 100, 255, cv.THRESH_BINARY)
+def canny_edges(gray: np.ndarray, low_threshold: int = 50, high_threshold: int = 150) -> np.ndarray:
+    """Apply Canny edge detection with hysteresis thresholding."""
+    return cv.Canny(gray, low_threshold, high_threshold)
+
+
+def morphological_close(edges: np.ndarray, ksize: int = 3) -> np.ndarray:
+    """Apply morphological closing to bridge small gaps in edges."""
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (ksize, ksize))
+    return cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel)
+
+
+def get_contours(edges: np.ndarray, use_otsu: bool = True) -> List[np.ndarray]:
+    """Threshold and find contours from edge image.
+
+    Args:
+        edges: Edge image (Sobel or Canny output)
+        use_otsu: If True, use Otsu's adaptive thresholding; otherwise fixed threshold
+    """
+    if use_otsu:
+        _, thresh = cv.threshold(edges, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    else:
+        _, thresh = cv.threshold(edges, 100, 255, cv.THRESH_BINARY)
     contours, _ = cv.findContours(thresh, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[-2:]
     return list(contours)
 
@@ -238,11 +262,11 @@ def group_small_panels(panels: List[InternalPanel]) -> List[InternalPanel]:
     return remaining + grouped_panels
 
 
-def actual_gutters(panels: List[InternalPanel], func: Callable[[List[int]], int] = min) -> Dict[str, int]:
+def collect_all_gutters(panels: List[InternalPanel]) -> Tuple[List[int], List[int]]:
     """
-    Estimate gutters between panels (Kumiko).
+    Collect all individual gutter widths between panels.
 
-    Returns {"x","y","r","b"} where "r"/"b" are the negative gutter values used for expansion.
+    Returns (gutters_x, gutters_y) lists for variance analysis.
     """
     gutters_x: List[int] = []
     gutters_y: List[int] = []
@@ -255,6 +279,17 @@ def actual_gutters(panels: List[InternalPanel], func: Callable[[List[int]], int]
         top_panel = p.find_top_panel(panels)
         if top_panel:
             gutters_y.append(p.y - top_panel.b)
+
+    return gutters_x, gutters_y
+
+
+def actual_gutters(panels: List[InternalPanel], func: Callable[[List[int]], int] = min) -> Dict[str, int]:
+    """
+    Estimate gutters between panels (Kumiko).
+
+    Returns {"x","y","r","b"} where "r"/"b" are the negative gutter values used for expansion.
+    """
+    gutters_x, gutters_y = collect_all_gutters(panels)
 
     if not gutters_x:
         gutters_x = [1]
@@ -337,6 +372,9 @@ def detect_panels(
     panel_expansion: bool = True,
     small_panel_grouping: bool = True,
     big_panel_grouping: bool = True,
+    use_denoising: bool = True,
+    use_canny: bool = False,
+    use_morphological_close: bool = True,
     debug: Optional["DebugContext"] = None,
 ) -> Tuple[List[InternalPanel], List[float]]:
     """
@@ -349,6 +387,9 @@ def detect_panels(
         panel_expansion: Whether to expand panels to fill gutters
         small_panel_grouping: Whether to group small nearby panels
         big_panel_grouping: Whether to group large adjacent panels
+        use_denoising: Whether to apply Gaussian blur before edge detection
+        use_canny: Whether to use Canny edges (True) or Sobel edges (False)
+        use_morphological_close: Whether to apply morphological closing to bridge edge gaps
         debug: Optional debug context for step-by-step visualization
     """
     img_size = (img.shape[1], img.shape[0])  # (width, height)
@@ -363,27 +404,46 @@ def detect_panels(
     if debug and debug.enabled:
         debug.add_image("Grayscale", gray)
 
-    # 1. Sobel edge detection
-    sobel = sobel_edges(gray)
-    if debug and debug.enabled:
-        debug.add_image("Sobel edges", sobel)
+    # 1. Preprocessing: optional denoising
+    if use_denoising:
+        gray_processed = denoise(gray)
+        if debug and debug.enabled:
+            debug.add_image("Denoised", gray_processed)
+    else:
+        gray_processed = gray
 
-    # 2. Threshold + contours
-    contours = get_contours(sobel)
+    # 2. Edge detection: Canny or Sobel
+    if use_canny:
+        edges = canny_edges(gray_processed)
+        if debug and debug.enabled:
+            debug.add_image("Canny edges", edges)
+    else:
+        edges = sobel_edges(gray_processed)
+        if debug and debug.enabled:
+            debug.add_image("Sobel edges", edges)
+
+    # 3. Optional morphological closing to bridge gaps
+    if use_morphological_close:
+        edges = morphological_close(edges)
+        if debug and debug.enabled:
+            debug.add_image("Morphological close", edges)
+
+    # 4. Threshold (Otsu) + contours
+    contours = get_contours(edges)
     if debug and debug.enabled:
         debug.draw_contours(contours)
         debug.add_step("Contours detected", [])
         debug.add_image("Contours")
 
-    # 3. LSD gutter detection
-    segments = detect_segments(gray, img_size, min_panel_ratio)
+    # 5. LSD gutter detection (on processed grayscale for better structural line focus)
+    segments = detect_segments(gray_processed, img_size, min_panel_ratio)
     segments = Segment.union_all(segments)
     if debug and debug.enabled:
         debug.draw_segments(segments)
         debug.add_step("Segments detected", [])
         debug.add_image("Segments")
 
-    # 4. Initial panels from contours
+    # 6. Initial panels from contours
     panels = initial_panels(contours, img_size, min_panel_ratio)
     if debug and debug.enabled:
         debug.draw_panels(panels)
