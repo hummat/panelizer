@@ -117,7 +117,7 @@ class CVDetector:
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
 
-        # Compute per-panel confidence scores (including edge strength)
+        # Compute per-panel confidence scores (including edge strength and gutter color)
         panel_confidences = []
         for p in internal_panels:
             edge_strength = compute_edge_strength(p, magnitude)
@@ -125,6 +125,7 @@ class CVDetector:
                 p,
                 internal_panels,
                 page_area,
+                gray=gray,
                 split_coverage=p.split_coverage,
                 edge_strength=edge_strength,
             )

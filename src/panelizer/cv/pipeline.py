@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 import cv2 as cv
 import numpy as np
 
+from .confidence import compute_line_variance
 from .panel_internal import InternalPanel
 from .segment import Segment
 
@@ -116,10 +117,28 @@ def initial_panels(
     return panels
 
 
-def split_panels(panels: List[InternalPanel], segments: List[Segment]) -> Tuple[List[InternalPanel], List[float]]:
+def _is_gutter_line(gray: np.ndarray, segment: Segment, max_variance: float = 400.0) -> bool:
+    """
+    Check if a segment line looks like a real gutter (low pixel variance)
+    vs artwork being cut (high pixel variance).
+    """
+    x0, y0 = segment.a
+    x1, y1 = segment.b
+    variance = compute_line_variance(gray, x0, y0, x1, y1)
+    return variance <= max_variance
+
+
+def split_panels(
+    panels: List[InternalPanel], segments: List[Segment], gray: Optional[np.ndarray] = None
+) -> Tuple[List[InternalPanel], List[float]]:
     """
     Iteratively split panels using detected segments.
     Continues until no more panels can be split.
+
+    Args:
+        panels: List of panels to potentially split
+        segments: Detected line segments
+        gray: Grayscale image for gutter color consistency check (optional)
 
     Sets split_coverage on each subpanel created via splitting.
     """
@@ -131,6 +150,11 @@ def split_panels(panels: List[InternalPanel], segments: List[Segment]) -> Tuple[
         for p in sorted(panels, key=lambda p: p.area(), reverse=True):
             split = p.split(segments)
             if split is not None:
+                # Validate split using gutter color consistency
+                if gray is not None and not _is_gutter_line(gray, split.segment):
+                    # High variance along split = cutting through artwork, reject
+                    continue
+
                 did_split = True
                 panels.remove(p)
                 coverage = split.segments_coverage()
@@ -331,6 +355,39 @@ def expand_panels(panels: List[InternalPanel]) -> List[InternalPanel]:
     return panels
 
 
+def remove_contained_panels(panels: List[InternalPanel], threshold: float = 0.9) -> List[InternalPanel]:
+    """
+    Remove panels that are almost entirely contained within another panel.
+
+    These are likely false positives (speech bubbles, artwork elements).
+    Run as final cleanup after all other processing.
+
+    Args:
+        panels: List of panels to filter
+        threshold: Remove panel if this fraction is inside another (default 0.9 = 90%)
+    """
+    to_remove: List[InternalPanel] = []
+
+    for p1 in panels:
+        for p2 in panels:
+            if p1 is p2:
+                continue
+
+            overlap = p1.overlap_panel(p2)
+            if not overlap:
+                continue
+
+            # Check if p1 is mostly inside p2
+            p1_area = p1.area()
+            if p1_area > 0 and overlap.area() / p1_area >= threshold:
+                # p1 is contained in p2, mark for removal
+                # Keep the larger panel (p2)
+                to_remove.append(p1)
+                break
+
+    return [p for p in panels if p not in to_remove]
+
+
 def _is_axis_aligned(segment: Segment, tolerance_deg: float = 15.0) -> bool:
     """Check if a segment is approximately horizontal or vertical."""
     angle_rad = segment.angle()
@@ -472,8 +529,8 @@ def detect_panels(
             debug.add_image("Small panels grouped")
 
     # 5. Refinement passes
-    # Split panels using segments
-    panels, split_coverages = split_panels(panels, segments)
+    # Split panels using segments (pass grayscale for gutter color validation)
+    panels, split_coverages = split_panels(panels, segments, gray=gray)
     if debug and debug.enabled:
         debug.draw_panels(panels)
         debug.add_step("Panels split", panels)
@@ -505,6 +562,13 @@ def detect_panels(
             debug.draw_panels(panels)
             debug.add_step("Big panels grouped", panels)
             debug.add_image("Big panels grouped")
+
+    # Final cleanup: remove panels contained within others (false positives)
+    panels = remove_contained_panels(panels)
+    if debug and debug.enabled:
+        debug.draw_panels(panels)
+        debug.add_step("Contained panels removed", panels)
+        debug.add_image("Contained panels removed")
 
     # Final result
     if debug and debug.enabled:

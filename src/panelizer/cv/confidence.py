@@ -8,6 +8,30 @@ import numpy as np
 from .panel_internal import InternalPanel
 
 
+def sample_line_pixels(gray: np.ndarray, x0: int, y0: int, x1: int, y1: int, num_samples: int = 20) -> np.ndarray:
+    """Sample pixel values along a line segment."""
+    h, w = gray.shape[:2]
+
+    # Generate sample points along the segment
+    t_values = np.linspace(0, 1, num_samples)
+    xs = (x0 + t_values * (x1 - x0)).astype(int)
+    ys = (y0 + t_values * (y1 - y0)).astype(int)
+
+    # Clamp to image bounds
+    xs = np.clip(xs, 0, w - 1)
+    ys = np.clip(ys, 0, h - 1)
+
+    return gray[ys, xs]
+
+
+def compute_line_variance(gray: np.ndarray, x0: int, y0: int, x1: int, y1: int) -> float:
+    """Compute variance of pixel values along a line segment."""
+    pixels = sample_line_pixels(gray, x0, y0, x1, y1)
+    if len(pixels) == 0:
+        return 0.0
+    return float(np.var(pixels))
+
+
 def compute_edge_strength(
     panel: InternalPanel,
     magnitude: np.ndarray,
@@ -15,6 +39,9 @@ def compute_edge_strength(
 ) -> float:
     """
     Compute average gradient magnitude along a panel's border.
+
+    Bleed Aware: If a panel edge coincides with the image boundary, it is
+    ignored for scoring purposes (as it likely lacks a drawn border).
 
     Args:
         panel: The panel to analyze
@@ -27,49 +54,46 @@ def compute_edge_strength(
     img_h, img_w = magnitude.shape[:2]
     x, y, w, h = panel.to_xywh()
 
-    # Clamp to image bounds
-    x = max(0, min(x, img_w - 1))
-    y = max(0, min(y, img_h - 1))
-    w = min(w, img_w - x)
-    h = min(h, img_h - y)
-
-    if w <= 0 or h <= 0:
-        return 0.5
-
-    # Sample border regions
+    # Sample border regions, but only if they aren't on the image boundary
     border_samples: List[np.ndarray] = []
 
-    # Top border
-    top_y1 = max(0, y - border_width)
-    top_y2 = min(img_h, y + border_width)
-    if top_y2 > top_y1:
-        border_samples.append(magnitude[top_y1:top_y2, x : x + w].flatten())
+    # Top border (skip if at top of image)
+    if y > 2:
+        top_y1 = max(0, y - border_width)
+        top_y2 = min(img_h, y + border_width)
+        if top_y2 > top_y1:
+            border_samples.append(magnitude[top_y1:top_y2, x : x + w].flatten())
 
-    # Bottom border
-    bot_y1 = max(0, y + h - border_width)
-    bot_y2 = min(img_h, y + h + border_width)
-    if bot_y2 > bot_y1:
-        border_samples.append(magnitude[bot_y1:bot_y2, x : x + w].flatten())
+    # Bottom border (skip if at bottom of image)
+    if y + h < img_h - 2:
+        bot_y1 = max(0, y + h - border_width)
+        bot_y2 = min(img_h, y + h + border_width)
+        if bot_y2 > bot_y1:
+            border_samples.append(magnitude[bot_y1:bot_y2, x : x + w].flatten())
 
-    # Left border
-    left_x1 = max(0, x - border_width)
-    left_x2 = min(img_w, x + border_width)
-    if left_x2 > left_x1:
-        border_samples.append(magnitude[y : y + h, left_x1:left_x2].flatten())
+    # Left border (skip if at left of image)
+    if x > 2:
+        left_x1 = max(0, x - border_width)
+        left_x2 = min(img_w, x + border_width)
+        if left_x2 > left_x1:
+            border_samples.append(magnitude[y : y + h, left_x1:left_x2].flatten())
 
-    # Right border
-    right_x1 = max(0, x + w - border_width)
-    right_x2 = min(img_w, x + w + border_width)
-    if right_x2 > right_x1:
-        border_samples.append(magnitude[y : y + h, right_x1:right_x2].flatten())
+    # Right border (skip if at right of image)
+    if x + w < img_w - 2:
+        right_x1 = max(0, x + w - border_width)
+        right_x2 = min(img_w, x + w + border_width)
+        if right_x2 > right_x1:
+            border_samples.append(magnitude[y : y + h, right_x1:right_x2].flatten())
 
     if not border_samples:
-        return 0.5
+        # Full page panel or all edges bleed - assume reasonable confidence
+        # if the rest of the metrics pass.
+        return 0.8
 
     # Combine all border samples
     all_samples = np.concatenate(border_samples)
     if len(all_samples) == 0:
-        return 0.5
+        return 0.8
 
     # Average gradient magnitude along borders
     avg_magnitude = float(np.mean(all_samples))
@@ -92,6 +116,7 @@ def compute_panel_confidence(
     all_panels: List[InternalPanel],
     page_area: int,
     *,
+    gray: Optional[np.ndarray] = None,
     split_coverage: Optional[float] = None,
     edge_strength: Optional[float] = None,
 ) -> float:
@@ -103,40 +128,40 @@ def compute_panel_confidence(
     2. Size factor - very small (< 3%) or very large (> 70%) panels are penalized
     3. Rectangularity - how well the polygon fits its bounding box
     4. Gutter quality - clear, consistent gaps to neighbors
-    5. Split quality - if panel was created via split, uses segment coverage
-    6. Edge strength - average gradient magnitude along panel border (if provided)
+    5. Gutter color - low variance along edges (if gray image provided)
+    6. Split quality - if panel was created via split, uses segment coverage
+    7. Edge strength - average gradient magnitude along panel border (if provided)
 
     Returns a score between 0.0 and 1.0.
     """
     scores: List[Tuple[float, float]] = []  # (score, weight)
 
     # 1. Aspect ratio factor (weight: 1.0)
-    # Most comic panels have aspect ratios between 0.3 and 3.0
     aspect = _aspect_ratio_score(panel)
     scores.append((aspect, 1.0))
 
     # 2. Size factor (weight: 1.0)
-    # Very small or very large panels are less confident
     size = _size_score(panel, page_area)
     scores.append((size, 1.0))
 
     # 3. Rectangularity factor (weight: 0.8)
-    # Rectangular panels are more common and more confident
     rect = _rectangularity_score(panel)
     scores.append((rect, 0.8))
 
     # 4. Gutter quality factor (weight: 1.2)
-    # Panels with clear, consistent gutters to neighbors are more confident
     gutter = _gutter_quality_score(panel, all_panels)
     scores.append((gutter, 1.2))
 
-    # 5. Split quality factor (weight: 0.5)
-    # If panel was created via split, use the segment coverage
+    # 5. Gutter color consistency (weight: 1.5)
+    if gray is not None:
+        color_conf = _gutter_color_score(panel, gray)
+        scores.append((color_conf, 1.5))
+
+    # 6. Split quality factor (weight: 0.5)
     if split_coverage is not None:
         scores.append((split_coverage, 0.5))
 
-    # 6. Edge strength factor (weight: 1.0)
-    # Panels with sharp, clear edges are more confident
+    # 7. Edge strength factor (weight: 1.0)
     if edge_strength is not None:
         scores.append((edge_strength, 1.0))
 
@@ -146,6 +171,47 @@ def compute_panel_confidence(
     confidence = weighted_sum / total_weight if total_weight > 0 else 0.5
 
     return max(0.0, min(1.0, confidence))
+
+
+def _gutter_color_score(panel: InternalPanel, gray: np.ndarray) -> float:
+    """
+    Score based on pixel variance along the panel edges.
+    Low variance (solid color) = good gutter.
+    High variance (artwork) = bad split/detection.
+    """
+    x, y, w, h = panel.to_xywh()
+    img_h, img_w = gray.shape[:2]
+
+    # Sample all 4 edges, but slightly inset to avoid the border line itself
+    # We want to sample the "gutter" side of the border.
+    variances = []
+
+    # Helper to score variance: 0-100 is excellent, 400+ is poor
+    def variance_to_score(v: float) -> float:
+        if v <= 100:
+            return 1.0
+        if v >= 600:
+            return 0.2
+        return 1.0 - 0.8 * (v - 100) / 500
+
+    # Top (check if not bleed)
+    if y > 2:
+        variances.append(compute_line_variance(gray, x, y, x + w, y))
+    # Bottom (check if not bleed)
+    if y + h < img_h - 2:
+        variances.append(compute_line_variance(gray, x, y + h, x + w, y + h))
+    # Left (check if not bleed)
+    if x > 2:
+        variances.append(compute_line_variance(gray, x, y, x, y + h))
+    # Right (check if not bleed)
+    if x + w < img_w - 2:
+        variances.append(compute_line_variance(gray, x + w, y, x + w, y + h))
+
+    if not variances:
+        return 0.8  # All edges bleed, can't judge
+
+    edge_scores = [variance_to_score(v) for v in variances]
+    return sum(edge_scores) / len(edge_scores)
 
 
 def _aspect_ratio_score(panel: InternalPanel) -> float:

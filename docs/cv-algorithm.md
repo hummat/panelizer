@@ -23,7 +23,7 @@ The detection pipeline (`pipeline.py`) processes each page image through the fol
    - **Expansion**: Expands panels to "snap" to gutters or page edges (based on `actual_gutters` analysis).
 
 4. **Grouping**:
-   - **Big Panel Grouping**: Merges adjacent panels if no strong gutter segment exists between them (handles panels drawn without clear borders).
+   - **Big Panel Grouping**: Merges adjacent panels if no strong *axis-aligned* gutter segment exists between them. Diagonal segments (e.g., motion lines, speed lines) are ignored since real gutters are nearly always horizontal or vertical. This handles panels drawn without clear borders while avoiding false splits from artistic elements.
 
 ## Confidence Scoring
 
@@ -68,4 +68,15 @@ If panels were split using line segments (LSD), how "strong" were those segments
 | `panel_expansion` | `True` | Snap panels to gutters/edges. |
 | `small_panel_grouping` | `True` | Merge tiny clusters. |
 | `big_panel_grouping` | `True` | Merge borderless adjacent panels. |
+
+## Known Limitations
+
+CV-based detection works well for pages with clear panel borders but struggles with:
+
+- **Motion lines / speed lines**: Artistic lines inside panels can create false contours that fragment a single panel into multiple pieces. The axis-aligned segment filter helps with grouping, but contour detection itself may still produce fragments.
+- **Borderless panels**: Panels that blend into each other without clear edges.
+- **Complex artistic layouts**: Overlapping panels, irregular shapes, panels-within-panels.
+- **Low contrast borders**: Faint or stylized panel borders that don't produce strong edges.
+
+When CV confidence is low (< 0.8), the page should be processed by Stage 2 (ML/YOLO) or flagged for manual review.
 
