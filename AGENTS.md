@@ -4,7 +4,7 @@ This file provides guidance to CLI coding agents when working with code in this 
 
 ## Project Overview
 
-Panel Flow is a pragmatic, human-in-the-loop system for panel-by-panel comic reading from local, DRM-free files (CBZ/PDF). It combines classic computer vision, modern foundation models, and a lightweight cross-platform viewer.
+Panelizer is a pragmatic, human-in-the-loop system for panel-by-panel comic reading from local, DRM-free files (CBZ/PDF). It combines classic computer vision, modern foundation models, and a lightweight cross-platform viewer.
 
 **Current Status:** Early-stage prototyping. Core detection modules under development.
 
@@ -67,7 +67,7 @@ When implementing stages, refer to these projects:
 - Keep Markdown concise and skimmable; prefer fenced code blocks for formats/commands
 - For new code, default to:
   - **Python:** 4-space indentation, type hints where practical, modules in `snake_case.py`
-  - **CLI/tools:** commands and files in `kebab-case` where applicable (e.g., `panel-flow`)
+  - **CLI/tools:** commands and files in `kebab-case` where applicable (e.g., `panelizer`)
 - Name data/schema files explicitly (e.g., `schema/panel-metadata.schema.json`)
 
 ## Testing Guidelines

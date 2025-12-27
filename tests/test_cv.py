@@ -1,8 +1,8 @@
 from PIL import Image, ImageDraw
 
-from panel_flow.cv import CVDetector
-from panel_flow.cv.panel_internal import InternalPanel
-from panel_flow.cv.segment import Segment
+from panelizer.cv import CVDetector
+from panelizer.cv.panel_internal import InternalPanel
+from panelizer.cv.segment import Segment
 
 
 class TestSegment:

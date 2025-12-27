@@ -63,7 +63,7 @@ def parse_pages_specs(specs: Tuple[str, ...]) -> Optional[Set[int]]:
 
 @click.group()
 def cli():
-    """Panel Flow: Pragmatic comic panel detection."""
+    """Panelizer: Pragmatic comic panel detection."""
     pass
 
 
@@ -159,7 +159,7 @@ def visualize(file: Path, json_file: Path, output_dir: Optional[Path], pages: Tu
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
     else:
-        output_dir = Path(tempfile.mkdtemp(prefix="panel-flow-viz-"))
+        output_dir = Path(tempfile.mkdtemp(prefix="panelizer-viz-"))
 
     click.echo(f"Rendering pages to {output_dir}...")
 

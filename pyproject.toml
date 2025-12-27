@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "panel-flow"
-version = "0.0.0"
+name = "panelizer"
+version = "0.1.0"
 description = "Panel-by-panel comic reader with human-in-the-loop detection"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,7 +17,8 @@ dependencies = [
 ]
 
 [project.scripts]
-panel-flow = "panel_flow.__main__:main"
+panelizer = "panelizer.__main__:main"
+panel-flow = "panelizer.__main__:main"
 
 [project.optional-dependencies]
 dev = [
@@ -38,11 +39,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/panel_flow"]
+packages = ["src/panelizer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=panel_flow --cov-report=term-missing --cov-fail-under=80"
+addopts = "-q --cov=panelizer --cov-report=term-missing --cov-fail-under=80"
 
 [tool.ruff]
 target-version = "py311"
@@ -54,7 +55,7 @@ select = ["E", "F", "I", "B"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["panel_flow"]
+known-first-party = ["panelizer"]
 
 [tool.pyright]
 include = ["src", "tests"]

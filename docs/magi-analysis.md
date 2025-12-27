@@ -56,7 +56,7 @@ Plus learned associations:
 | v2 | Same as v1 | Chapter-wide character tracking |
 | v3 | Florence-2 (DaViT + LM) | New vision tower, ordering not documented |
 
-## Implications for Panel Flow
+## Implications for Panelizer
 
 1. **Magi's ordering is not learned** — it's the same row-major heuristics we already plan to use
 2. **The real differentiator** is multi-task detection with learned associations

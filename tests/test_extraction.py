@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from panel_flow.extraction import Extractor, calculate_book_hash
+from panelizer.extraction import Extractor, calculate_book_hash
 
 
 class TestCalculateBookHash:

@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from panel_flow.schema import (
+from panelizer.schema import (
     BookData,
     BookMetadata,
     DetectionSource,

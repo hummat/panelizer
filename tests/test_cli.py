@@ -8,7 +8,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from PIL import Image
 
-from panel_flow.__main__ import cli
+from panelizer.__main__ import cli
 
 
 class TestCLI:
@@ -16,7 +16,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "Panel Flow" in result.output
+        assert "Panelizer" in result.output
 
     def test_process_command_help(self) -> None:
         runner = CliRunner()
@@ -161,7 +161,7 @@ class TestCLI:
                 json.dump(json_data, f)
 
             # Mock subprocess.run to avoid opening actual viewer
-            with patch("panel_flow.__main__.subprocess.run") as mock_run:
+            with patch("panelizer.__main__.subprocess.run") as mock_run:
                 result = runner.invoke(cli, ["visualize", str(cbz_path), str(json_path), "-o", str(viz_dir)])
 
                 assert result.exit_code == 0
@@ -221,7 +221,7 @@ class TestCLI:
             with open(json_path, "w") as f:
                 json.dump(json_data, f)
 
-            with patch("panel_flow.__main__.subprocess.run") as mock_run:
+            with patch("panelizer.__main__.subprocess.run") as mock_run:
                 result = runner.invoke(
                     cli, ["visualize", str(cbz_path), str(json_path), "-o", str(viz_dir), "--pages", "2-3"]
                 )

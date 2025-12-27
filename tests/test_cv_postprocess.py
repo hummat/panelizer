@@ -1,8 +1,8 @@
 import numpy as np
 
-from panel_flow.cv.panel_internal import InternalPanel
-from panel_flow.cv.pipeline import expand_panels, group_big_panels, group_small_panels
-from panel_flow.cv.segment import Segment
+from panelizer.cv.panel_internal import InternalPanel
+from panelizer.cv.pipeline import expand_panels, group_big_panels, group_small_panels
+from panelizer.cv.segment import Segment
 
 
 def rect_polygon(x: int, y: int, w: int, h: int) -> np.ndarray:

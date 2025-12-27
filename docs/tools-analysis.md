@@ -1,6 +1,6 @@
 # Tools Analysis: Comic Panel Detection
 
-A comparative analysis of existing comic panel detection tools for informing Panel Flow design.
+A comparative analysis of existing comic panel detection tools for informing Panelizer design.
 
 ---
 
@@ -192,7 +192,7 @@ SAM (Segment Anything Model) fine-tuned for comic panel polygon segmentation.
 - Training methodology not documented (see CS_580_Project.pdf)
 - Research-grade code, not production-ready
 
-### Implications for Panel Flow
+### Implications for Panelizer
 - **When to use**: Only for irregular panels where bbox is insufficient
 - **Cost**: Likely slower than YOLO, may be overkill for most pages
 - **Trade-off**: Polygon accuracy vs inference speed
@@ -278,7 +278,7 @@ https://github.com/pedrovgs/DeepPanel
 | SAM-comic | Deep learning | Slow | No | No | Apache 2.0 |
 | DeepPanel | Deep learning (U-Net) | Medium (<1s) | No | No | Apache 2.0 |
 
-## Recommendations for Panel Flow
+## Recommendations for Panelizer
 
 ### Stage 1 (CV)
 - **Primary reference**: Kumiko (more sophisticated than C.A.P.E)

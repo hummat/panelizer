@@ -1,5 +1,5 @@
-from panel_flow.ordering import order_panels
-from panel_flow.schema import ReadingDirection
+from panelizer.ordering import order_panels
+from panelizer.schema import ReadingDirection
 
 
 class TestOrderPanels:
