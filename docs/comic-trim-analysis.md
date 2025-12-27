@@ -21,7 +21,7 @@ Comic Trim is a popular Android reader that attempts panel-by-panel reading usin
 
 ## Limitations
 - **Fragile**: Fails on "modern" layouts (overlapping panels, splash pages, bleeding art).
-- **Discontinued/Dormant**: Updates have slowed or stopped.
+- **Dormant**: Last update was **September 2023** (v4.20).
 - **Closed Source**: Implementation details are hidden.
 
 ## Use in Panelizer
