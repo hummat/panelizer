@@ -6,6 +6,9 @@ const state = {
   panelIndex: 0,
   mode: "panel", // "panel" | "page"
   overlay: true,
+  // Free pan/zoom state
+  freeMode: false,
+  transform: { tx: 0, ty: 0, scale: 1 },
 };
 
 const els = {
@@ -73,9 +76,10 @@ function updateStatus() {
 
   const cvConf = state.page?.cv_confidence;
   const cvConfText = typeof cvConf === "number" ? `CV conf ${cvConf.toFixed(2)}` : "CV conf ?";
+  const viewText = state.freeMode ? "free view" : `${state.mode} view`;
   const parts = [`Page ${pageNum}/${pageTotal}`, panelPart];
   if (panelConfText) parts.push(panelConfText);
-  parts.push(cvConfText, `${state.mode} view`);
+  parts.push(cvConfText, viewText);
   els.status.textContent = parts.join(" · ");
 
   const dir = state.book?.reading_direction ?? "?";
@@ -133,12 +137,19 @@ function syncOverlayToImage() {
   els.overlay.style.transform = els.img.style.transform || "";
 }
 
-function fitImageToViewport() {
-  if (!els.img.naturalWidth || !els.img.naturalHeight) return;
+function applyTransform() {
+  const { tx, ty, scale } = state.transform;
+  els.img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  syncOverlayToImage();
+  drawOverlay();
+}
+
+function computeFitTransform() {
+  if (!els.img.naturalWidth || !els.img.naturalHeight) return null;
 
   const vw = els.viewport.clientWidth;
   const vh = els.viewport.clientHeight;
-  if (!vw || !vh) return;
+  if (!vw || !vh) return null;
 
   const iw = els.img.naturalWidth;
   const ih = els.img.naturalHeight;
@@ -147,28 +158,41 @@ function fitImageToViewport() {
     const scale = Math.min(vw / iw, vh / ih);
     const tx = (vw - iw * scale) / 2;
     const ty = (vh - ih * scale) / 2;
-    els.img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    syncOverlayToImage();
-    drawOverlay();
-    return;
+    return { tx, ty, scale };
   }
 
   const bbox = currentPanelBBox();
-  if (!bbox) {
-    state.mode = "page";
-    els.toggleMode.textContent = "Panel view";
-    fitImageToViewport();
-    return;
-  }
+  if (!bbox) return null;
 
   const [x, y, w, h] = bbox;
   const scale = Math.min(vw / w, vh / h);
   const tx = -x * scale + (vw - w * scale) / 2;
   const ty = -y * scale + (vh - h * scale) / 2;
+  return { tx, ty, scale };
+}
 
-  els.img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-  syncOverlayToImage();
-  drawOverlay();
+function fitImageToViewport() {
+  if (!els.img.naturalWidth || !els.img.naturalHeight) return;
+
+  // In free mode, just apply the current transform
+  if (state.freeMode) {
+    applyTransform();
+    return;
+  }
+
+  const fit = computeFitTransform();
+  if (!fit) {
+    // No valid panel bbox in panel mode - fall back to page mode
+    if (state.mode === "panel") {
+      state.mode = "page";
+      els.toggleMode.textContent = "Panel view";
+      fitImageToViewport();
+    }
+    return;
+  }
+
+  state.transform = fit;
+  applyTransform();
 }
 
 async function loadBook() {
@@ -192,16 +216,15 @@ async function loadPage() {
 
 function setMode(mode) {
   state.mode = mode;
+  state.freeMode = false; // Snap back to fitted view
   els.toggleMode.textContent = state.mode === "page" ? "Panel view" : "Page view";
-  syncOverlayToImage();
-  drawOverlay();
   fitImageToViewport();
   updateStatus();
 }
 
 function setOverlay(on) {
   state.overlay = on;
-  els.toggleOverlay.textContent = state.overlay ? "Overlay on" : "Overlay off";
+  els.toggleOverlay.textContent = state.overlay ? "Overlay off" : "Overlay on";
   syncOverlayToImage();
   drawOverlay();
 }
@@ -297,6 +320,73 @@ function attachEvents() {
       e.preventDefault();
       if (isShift) prevPage().catch((err) => setError(String(err)));
       else prevPanel().catch((err) => setError(String(err)));
+    }
+  });
+
+  // Mouse wheel zoom
+  els.viewport.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      if (!els.img.naturalWidth) return;
+
+      const rect = els.viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Zoom factor (smaller = finer control)
+      const zoomFactor = 1.1;
+      const delta = e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+
+      const oldScale = state.transform.scale;
+      const newScale = clamp(oldScale * delta, 0.1, 20);
+
+      // Zoom centered on mouse position
+      const { tx, ty } = state.transform;
+      const newTx = mouseX - (mouseX - tx) * (newScale / oldScale);
+      const newTy = mouseY - (mouseY - ty) * (newScale / oldScale);
+
+      state.transform = { tx: newTx, ty: newTy, scale: newScale };
+      state.freeMode = true;
+      applyTransform();
+      updateStatus();
+    },
+    { passive: false },
+  );
+
+  // Mouse drag panning
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragStartTx = 0;
+  let dragStartTy = 0;
+
+  els.viewport.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // Left button only
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartTx = state.transform.tx;
+    dragStartTy = state.transform.ty;
+    els.viewport.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    state.transform.tx = dragStartTx + dx;
+    state.transform.ty = dragStartTy + dy;
+    state.freeMode = true;
+    applyTransform();
+    updateStatus();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      els.viewport.style.cursor = "";
     }
   });
 

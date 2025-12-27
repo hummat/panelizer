@@ -340,6 +340,13 @@ def group_big_panels(panels: List[InternalPanel], segments: List[Segment]) -> Li
             for p2 in panels[i + 1 :]:
                 p3 = p1.group_with(p2)
 
+                # Reject groupings that create extreme aspect ratios
+                # Normal panels have aspect ratios between 0.3 and 3.5
+                # Extreme ratios suggest we're incorrectly merging separate panels
+                aspect = p3.w() / p3.h() if p3.h() > 0 else 999
+                if aspect < 0.3 or aspect > 3.5:
+                    continue
+
                 other_panels = [p for p in panels if p not in [p1, p2]]
                 if p3.bumps_into(other_panels):
                     continue
