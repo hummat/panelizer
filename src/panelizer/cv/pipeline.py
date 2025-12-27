@@ -331,6 +331,17 @@ def expand_panels(panels: List[InternalPanel]) -> List[InternalPanel]:
     return panels
 
 
+def _is_axis_aligned(segment: Segment, tolerance_deg: float = 15.0) -> bool:
+    """Check if a segment is approximately horizontal or vertical."""
+    angle_rad = segment.angle()
+    angle_deg = abs(math.degrees(angle_rad))
+    # Normalize to 0-90 range
+    if angle_deg > 90:
+        angle_deg = 180 - angle_deg
+    # Check if near horizontal (0°) or vertical (90°)
+    return angle_deg <= tolerance_deg or angle_deg >= (90 - tolerance_deg)
+
+
 def group_big_panels(panels: List[InternalPanel], segments: List[Segment]) -> List[InternalPanel]:
     """Group big panels together when the union doesn't bump and has no strong gutter segments (Kumiko)."""
     grouped = True
@@ -340,19 +351,15 @@ def group_big_panels(panels: List[InternalPanel], segments: List[Segment]) -> Li
             for p2 in panels[i + 1 :]:
                 p3 = p1.group_with(p2)
 
-                # Reject groupings that create extreme aspect ratios
-                # Normal panels have aspect ratios between 0.3 and 3.5
-                # Extreme ratios suggest we're incorrectly merging separate panels
-                aspect = p3.w() / p3.h() if p3.h() > 0 else 999
-                if aspect < 0.3 or aspect > 3.5:
-                    continue
-
                 other_panels = [p for p in panels if p not in [p1, p2]]
                 if p3.bumps_into(other_panels):
                     continue
 
+                # Only axis-aligned segments can block grouping (not diagonal motion lines)
                 big_segments: List[Segment] = []
                 for s in segments:
+                    if not _is_axis_aligned(s):
+                        continue
                     if p3.contains_segment(s) and s.dist() > p3.diagonal().dist() / 5:
                         if s not in big_segments:
                             big_segments.append(s)

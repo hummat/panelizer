@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
 
+from ..cv.debug import DebugContext
 from ..cv.detector import CVDetector
 from ..extraction.extractor import Extractor
 from ..extraction.utils import calculate_book_hash
@@ -74,6 +75,8 @@ class PreviewConfig:
     host: str = "127.0.0.1"
     port: int = 0
     cache_size: int = DEFAULT_CACHE_SIZE
+    debug: bool = False
+    debug_dir: Optional[Path] = None
 
 
 class PreviewApp:
@@ -123,7 +126,26 @@ class PreviewApp:
                 return cached
 
         img = self.extractor.get_page(index)
-        result = self.detector.detect(img)
+
+        # Set up debug context if enabled
+        debug_ctx = None
+        if self.config.debug:
+            debug_dir = self.config.debug_dir or Path(f"{self.config.file_path}.debug")
+            page_debug_dir = debug_dir / f"page-{index:04d}"
+            debug_ctx = DebugContext(enabled=True, output_dir=page_debug_dir)
+
+        result = self.detector.detect(img, debug=debug_ctx)
+
+        # Print debug info and save HTML
+        if debug_ctx and debug_ctx.enabled:
+            print(f"\n[DEBUG] Page {index}:")
+            for i, step in enumerate(debug_ctx.steps):
+                print(f"  {i + 1}. {step.name}: {step.panel_count} panels ({step.elapsed_ms:.1f}ms)")
+            print(f"  Total: {debug_ctx.total_time_ms():.1f}ms, {len(result.panels)} final panels")
+            html_path = debug_ctx.save_html()
+            if html_path:
+                print(f"  Debug HTML: {html_path}")
+
         bboxes = [p.bbox for p in result.panels]
         ordered_indices = order_panels(bboxes, self.config.reading_direction)
 

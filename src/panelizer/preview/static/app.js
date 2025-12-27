@@ -290,11 +290,18 @@ function attachEvents() {
   els.nextPanel.addEventListener("click", () => nextPanel().catch((e) => setError(String(e))));
   els.toggleMode.addEventListener("click", () => setMode(state.mode === "page" ? "panel" : "page"));
   els.toggleOverlay.addEventListener("click", () => setOverlay(!state.overlay));
-  els.goPage.addEventListener("click", () => {
+  function goToPage() {
     const wanted = Number.parseInt(els.pageJump.value, 10);
     if (!Number.isFinite(wanted)) return;
     state.pageIndex = clamp(wanted - 1, 0, Math.max(0, pageCount() - 1));
     loadPage().catch((e) => setError(String(e)));
+  }
+  els.goPage.addEventListener("click", goToPage);
+  els.pageJump.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      goToPage();
+    }
   });
 
   window.addEventListener("resize", () => fitImageToViewport());

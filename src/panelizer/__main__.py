@@ -272,12 +272,22 @@ def main():
     cli()
 
 
-def _run_preview(file: Path, direction: str, host: str, port: int, open_browser: bool) -> None:
+def _run_preview(
+    file: Path,
+    direction: str,
+    host: str,
+    port: int,
+    open_browser: bool,
+    debug: bool = False,
+    debug_dir: Optional[Path] = None,
+) -> None:
     config = PreviewConfig(
         file_path=file,
         reading_direction=ReadingDirection(direction),
         host=host,
         port=port,
+        debug=debug,
+        debug_dir=debug_dir,
     )
     httpd, url = create_preview_server(config)
 
@@ -304,9 +314,26 @@ def _run_preview(file: Path, direction: str, host: str, port: int, open_browser:
 @click.option("--host", default="127.0.0.1", show_default=True, help="Bind address (use 127.0.0.1 for local only)")
 @click.option("--port", default=0, show_default=True, type=int, help="Port (0 chooses a free port)")
 @click.option("--open/--no-open", "open_browser", default=True, show_default=True, help="Open browser automatically")
-def preview(file: Path, direction: str, host: str, port: int, open_browser: bool) -> None:
+@click.option("--debug", is_flag=True, help="Output debug images and info for each page")
+@click.option(
+    "--debug-dir", type=click.Path(path_type=Path), help="Directory for debug output (default: <file>.debug/)"
+)
+def preview(
+    file: Path, direction: str, host: str, port: int, open_browser: bool, debug: bool, debug_dir: Optional[Path]
+) -> None:
     """Run a local web preview tool to inspect CV detection results."""
-    _run_preview(file=file, direction=direction, host=host, port=port, open_browser=open_browser)
+    if debug:
+        actual_debug_dir = debug_dir or Path(f"{file}.debug")
+        click.echo(f"Debug mode enabled. Output will be saved to {actual_debug_dir}/")
+    _run_preview(
+        file=file,
+        direction=direction,
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        debug=debug,
+        debug_dir=debug_dir,
+    )
 
 
 @cli.command(name="viewer", hidden=True)
