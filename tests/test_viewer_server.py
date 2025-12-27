@@ -1,6 +1,7 @@
 import tempfile
 import types
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from PIL import Image
@@ -155,6 +156,6 @@ class TestHandlerSend:
                 wfile=FakeWFile(),
             )
 
-            handler_cls._send(fake, 200, b"hello", "text/plain; charset=utf-8")
+            handler_cls._send(cast(Any, fake), 200, b"hello", "text/plain; charset=utf-8")
         finally:
             img_path.unlink()

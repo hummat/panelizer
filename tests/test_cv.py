@@ -470,9 +470,9 @@ class TestConfidence:
 
 class TestDebugContext:
     def test_disabled_context_does_nothing(self) -> None:
-        from panelizer.cv.debug import DebugContext
-
         import numpy as np
+
+        from panelizer.cv.debug import DebugContext
 
         ctx = DebugContext(enabled=False)
         # All methods should be no-ops when disabled
@@ -483,9 +483,9 @@ class TestDebugContext:
         assert len(ctx.steps) == 0
 
     def test_enabled_context_tracks_steps(self, tmp_path) -> None:
-        from panelizer.cv.debug import DebugContext
-
         import numpy as np
+
+        from panelizer.cv.debug import DebugContext
 
         ctx = DebugContext(enabled=True, output_dir=tmp_path)
         base_img = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -518,8 +518,9 @@ class TestDebugContext:
         assert "Panelizer Detection Pipeline" in html_path.read_text()
 
     def test_total_time_tracking(self) -> None:
-        from panelizer.cv.debug import DebugContext
         import time
+
+        from panelizer.cv.debug import DebugContext
 
         ctx = DebugContext(enabled=True)
         time.sleep(0.01)  # Small delay
