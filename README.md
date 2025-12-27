@@ -18,7 +18,7 @@ This project aims to close that gap.
 | **[C.A.P.E.](https://github.com/CodeMinion/C.A.P.E)** | OpenCV + Electron editor | JSON bboxes | **Closest to this project's vision.** Has human-in-loop editor. No viewer. Desktop only. Semi-abandoned. |
 | **[DeepPanel](https://github.com/pedrovgs/DeepPanel)** | CNN (TFLite) | Bboxes | Mobile-optimized (Android/iOS libs). ~400ms/page. No ordering. Apache 2.0. |
 | **[best-comic-panel-detection](https://huggingface.co/mosesb/best-comic-panel-detection)** | YOLOv12 | Bboxes | mAP ~99%. Apache 2.0. Drop-in for Stage 2. |
-| **[segment-anything-comic](https://github.com/Vrroom/segment-anything-comic)** | SAM fine-tuned | Polygons | Handles irregular panels. Research-grade. Apache 2.0. |
+| **[segment-anything-comic](https://github.com/Vrroom/segment-anything-comic)** | SAM 1-3 | Polygons | Handles irregular panels. SAM 2 (6x faster) and SAM 3 (Text-to-seg) are viable fallbacks. |
 | **[Magi](https://github.com/ragavsachdeva/magi)** | Deep learning | Panels + order + OCR | **Only open tool that does reading order.** Manga-focused. Apache 2.0. |
 
 ### Readers with panel detection
@@ -130,7 +130,7 @@ Candidate models (ready to use):
 | Model | Output | Speed | Notes |
 |-------|--------|-------|-------|
 | **[best-comic-panel-detection](https://huggingface.co/mosesb/best-comic-panel-detection)** | Bboxes | Fast | YOLOv12, mAP 99%, easiest integration |
-| **[segment-anything-comic](https://github.com/Vrroom/segment-anything-comic)** | Polygons | Slow | Handles irregular panels |
+| **[SAM 2 / 3](https://github.com/Vrroom/segment-anything-comic)** | Polygons | Medium | SAM 2 is 6x faster than v1; SAM 3 adds text-prompting |
 | **[DeepPanel](https://github.com/pedrovgs/DeepPanel)** | Bboxes | ~400ms | Best for mobile/native if needed |
 
 **Recommendation:** Start with YOLO model. Add SAM-comic for irregular layouts if needed.
@@ -335,7 +335,8 @@ See `AGENTS.md` for contribution guidelines.
 - [Kumiko](https://github.com/njean42/kumiko) — CV panel extraction
 - [C.A.P.E.](https://github.com/CodeMinion/C.A.P.E) — CV + editor (study the UI)
 - [best-comic-panel-detection](https://huggingface.co/mosesb/best-comic-panel-detection) — YOLOv12
-- [segment-anything-comic](https://github.com/Vrroom/segment-anything-comic) — SAM fine-tuned
+- [SAM 1-3 (Meta AI)](https://ai.meta.com/blog/segment-anything-2/) — Foundation models for polygon segmentation
+- [segment-anything-comic](https://github.com/Vrroom/segment-anything-comic) — SAM fine-tuned for comics
 - [DeepPanel](https://github.com/pedrovgs/DeepPanel) — Mobile CNN
 
 ### Ordering

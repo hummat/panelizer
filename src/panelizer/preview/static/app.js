@@ -310,8 +310,13 @@ function attachEvents() {
     fitImageToViewport();
   });
 
-  // Keyboard navigation (viewport focusable)
-  els.viewport.addEventListener("keydown", (e) => {
+  // Keyboard navigation (global - works regardless of focus)
+  document.addEventListener("keydown", (e) => {
+    // Ignore if typing in an input
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
     if (e.key === " " || e.code === "Space") {
       e.preventDefault();
       setMode(state.mode === "page" ? "panel" : "page");

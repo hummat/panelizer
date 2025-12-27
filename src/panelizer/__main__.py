@@ -12,6 +12,7 @@ from .cv.debug import DebugContext
 from .cv.detector import CVDetector
 from .extraction.extractor import Extractor
 from .extraction.utils import calculate_book_hash
+from .ml import is_ml_available
 from .ordering import order_panels
 from .preview.server import PreviewConfig, create_preview_server
 from .schema import BookData, BookMetadata, DetectionSource, Page, ReadingDirection
@@ -83,6 +84,27 @@ def cli():
 @click.option(
     "--debug-dir", type=click.Path(path_type=Path), help="Directory for debug output (default: <file>.debug/)"
 )
+@click.option("--ml/--no-ml", "use_ml", default=False, help="Force ML detection (YOLO) for all pages")
+@click.option(
+    "--ml-fallback/--no-ml-fallback",
+    "ml_fallback",
+    default=True,
+    help="Auto-fallback to ML when CV confidence is low (default: enabled)",
+)
+@click.option(
+    "--confidence-threshold",
+    type=float,
+    default=0.7,
+    show_default=True,
+    help="CV confidence threshold for ML fallback (0.0-1.0)",
+)
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "mps", "cpu"]),
+    default="auto",
+    show_default=True,
+    help="Device for ML inference",
+)
 def process(
     file: Path,
     output: Optional[Path],
@@ -90,6 +112,10 @@ def process(
     pages: Tuple[str, ...],
     debug: bool,
     debug_dir: Optional[Path],
+    use_ml: bool,
+    ml_fallback: bool,
+    confidence_threshold: float,
+    device: str,
 ):
     """
     Process a comic file and generate panel metadata.
@@ -111,9 +137,23 @@ def process(
     click.echo(f"Processing {file}...")
 
     extractor = Extractor(file)
-    detector = CVDetector()
+    cv_detector = CVDetector()
     reading_dir = ReadingDirection(direction)
     selected_pages = parse_pages_specs(pages)
+
+    # Initialize ML detector if needed
+    ml_detector = None
+    if use_ml or ml_fallback:
+        if is_ml_available():
+            from .ml import YOLODetector
+
+            ml_device = None if device == "auto" else device
+            ml_detector = YOLODetector(device=ml_device)
+        elif use_ml:
+            raise click.ClickException("ML detection requested but dependencies not installed. Run: uv sync --extra ml")
+        elif ml_fallback:
+            click.echo("Note: ML fallback disabled (dependencies not installed)")
+            ml_fallback = False
 
     pages_data = []
     matched = 0
@@ -131,7 +171,25 @@ def process(
         if debug_ctx and debug_dir:
             page_debug = DebugContext(enabled=True, output_dir=debug_dir / f"page-{i:04d}")
 
-        result = detector.detect(img, debug=page_debug)
+        # Determine which detector to use
+        if use_ml and ml_detector:
+            # Force ML detection
+            result = ml_detector.detect(img)
+            source = DetectionSource.YOLO
+        else:
+            # CV detection first
+            result = cv_detector.detect(img, debug=page_debug)
+            source = DetectionSource.CV
+
+            # Check for ML fallback
+            if ml_fallback and ml_detector and result.confidence < confidence_threshold:
+                click.echo(f" low conf ({result.confidence:.2f}), trying ML...", nl=False)
+                ml_result = ml_detector.detect(img)
+
+                # Use ML result if it found panels
+                if ml_result.panels:
+                    result = ml_result
+                    source = DetectionSource.YOLO
 
         # Save debug HTML for this page
         if page_debug:
@@ -150,12 +208,13 @@ def process(
             panels=result.panels,
             order=[result.panels[idx].id for idx in ordered_indices],
             order_confidence=0.9,  # Heuristic confidence
-            source=DetectionSource.CV,
+            source=source,
             gutters=result.gutters,
             processing_time=result.processing_time,
         )
         pages_data.append(page)
-        click.echo(f" found {len(result.panels)} panels (conf: {result.confidence:.2f})")
+        source_label = "yolo" if source == DetectionSource.YOLO else "cv"
+        click.echo(f" found {len(result.panels)} panels ({source_label}, conf: {result.confidence:.2f})")
 
     if selected_pages is not None and matched == 0:
         raise click.ClickException(f"No pages matched --pages={','.join(pages)!r}")
@@ -280,7 +339,22 @@ def _run_preview(
     open_browser: bool,
     debug: bool = False,
     debug_dir: Optional[Path] = None,
+    use_ml: bool = False,
+    ml_fallback: bool = True,
+    confidence_threshold: float = 0.7,
+    device: Optional[str] = None,
 ) -> None:
+    # Check ML availability
+    if use_ml or ml_fallback:
+        if not is_ml_available():
+            if use_ml:
+                raise click.ClickException(
+                    "ML detection requested but dependencies not installed. Run: uv sync --extra ml"
+                )
+            else:
+                click.echo("Note: ML fallback disabled (dependencies not installed)")
+                ml_fallback = False
+
     config = PreviewConfig(
         file_path=file,
         reading_direction=ReadingDirection(direction),
@@ -288,10 +362,15 @@ def _run_preview(
         port=port,
         debug=debug,
         debug_dir=debug_dir,
+        use_ml=use_ml,
+        ml_fallback=ml_fallback,
+        confidence_threshold=confidence_threshold,
+        device=device,
     )
     httpd, url = create_preview_server(config)
 
-    click.echo(f"Preview running at {url}")
+    mode_info = "YOLO" if use_ml else f"CV (fallback: {'on' if ml_fallback else 'off'})"
+    click.echo(f"Preview running at {url} [{mode_info}]")
     click.echo("Press Ctrl+C to stop.")
 
     if open_browser:
@@ -318,10 +397,41 @@ def _run_preview(
 @click.option(
     "--debug-dir", type=click.Path(path_type=Path), help="Directory for debug output (default: <file>.debug/)"
 )
+@click.option("--ml/--no-ml", "use_ml", default=False, help="Force ML detection (YOLO) for all pages")
+@click.option(
+    "--ml-fallback/--no-ml-fallback",
+    "ml_fallback",
+    default=True,
+    help="Auto-fallback to ML when CV confidence is low (default: enabled)",
+)
+@click.option(
+    "--confidence-threshold",
+    type=float,
+    default=0.7,
+    show_default=True,
+    help="CV confidence threshold for ML fallback (0.0-1.0)",
+)
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "mps", "cpu"]),
+    default="auto",
+    show_default=True,
+    help="Device for ML inference",
+)
 def preview(
-    file: Path, direction: str, host: str, port: int, open_browser: bool, debug: bool, debug_dir: Optional[Path]
+    file: Path,
+    direction: str,
+    host: str,
+    port: int,
+    open_browser: bool,
+    debug: bool,
+    debug_dir: Optional[Path],
+    use_ml: bool,
+    ml_fallback: bool,
+    confidence_threshold: float,
+    device: str,
 ) -> None:
-    """Run a local web preview tool to inspect CV detection results."""
+    """Run a local web preview tool to inspect detection results."""
     if debug:
         actual_debug_dir = debug_dir or Path(f"{file}.debug")
         click.echo(f"Debug mode enabled. Output will be saved to {actual_debug_dir}/")
@@ -333,6 +443,10 @@ def preview(
         open_browser=open_browser,
         debug=debug,
         debug_dir=debug_dir,
+        use_ml=use_ml,
+        ml_fallback=ml_fallback,
+        confidence_threshold=confidence_threshold,
+        device=None if device == "auto" else device,
     )
 
 

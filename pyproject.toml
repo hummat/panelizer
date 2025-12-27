@@ -28,6 +28,17 @@ dev = [
   "pyright>=1.1.385",
   "twine>=5.0.0",
 ]
+ml = [
+  "torch>=2.0.0",
+  "ultralytics>=8.3.0",
+  "huggingface_hub>=0.20.0",
+]
+ml-cpu = [
+  "torch>=2.0.0,<2.7",
+  "torchvision>=0.15.0,<0.22",
+  "ultralytics>=8.3.0",
+  "huggingface_hub>=0.20.0",
+]
 
 [dependency-groups]
 dev = [
@@ -36,6 +47,11 @@ dev = [
   "ruff>=0.6.0",
   "pyright>=1.1.385",
   "twine>=5.0.0",
+]
+ml = [
+  "torch>=2.0.0",
+  "ultralytics>=8.3.0",
+  "huggingface_hub>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -75,3 +91,18 @@ reportMissingImports = "warning"
 reportMissingModuleSource = "warning"
 venvPath = "."
 venv = ".venv"
+
+# uv configuration for CPU-only PyTorch
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true  # Only use when explicitly requested
+
+[tool.uv.sources]
+# When ml-cpu extra is used, get torch/torchvision from CPU index
+torch = [
+  { index = "pytorch-cpu", extra = "ml-cpu" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "ml-cpu" },
+]

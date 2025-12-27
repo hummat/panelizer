@@ -19,6 +19,7 @@ from ..cv.debug import DebugContext
 from ..cv.detector import CVDetector
 from ..extraction.extractor import Extractor
 from ..extraction.utils import calculate_book_hash
+from ..ml import is_ml_available
 from ..ordering import order_panels
 from ..schema import DetectionSource, ReadingDirection
 
@@ -77,13 +78,29 @@ class PreviewConfig:
     cache_size: int = DEFAULT_CACHE_SIZE
     debug: bool = False
     debug_dir: Optional[Path] = None
+    # ML options
+    use_ml: bool = False
+    ml_fallback: bool = True
+    confidence_threshold: float = 0.7
+    device: Optional[str] = None  # None = auto
 
 
 class PreviewApp:
     def __init__(self, config: PreviewConfig) -> None:
         self.config = config
         self.extractor = Extractor(config.file_path)
-        self.detector = CVDetector()
+        self.cv_detector = CVDetector()
+        self.ml_detector = None
+        self.ml_fallback = config.ml_fallback
+
+        # Initialize ML detector if needed
+        if config.use_ml or config.ml_fallback:
+            if is_ml_available():
+                from ..ml import YOLODetector
+
+                self.ml_detector = YOLODetector(device=config.device)
+            elif config.ml_fallback:
+                self.ml_fallback = False  # Disable fallback if deps not installed
 
         self._book_hash: Optional[str] = None
         self._page_png_cache: LRUCache[int, bytes] = LRUCache(config.cache_size)
@@ -134,7 +151,25 @@ class PreviewApp:
             page_debug_dir = debug_dir / f"page-{index:04d}"
             debug_ctx = DebugContext(enabled=True, output_dir=page_debug_dir)
 
-        result = self.detector.detect(img, debug=debug_ctx)
+        # Determine which detector to use
+        if self.config.use_ml and self.ml_detector:
+            # Force ML detection
+            result = self.ml_detector.detect(img)
+            source = DetectionSource.YOLO
+        else:
+            # CV detection first
+            result = self.cv_detector.detect(img, debug=debug_ctx)
+            source = DetectionSource.CV
+
+            # Check for ML fallback
+            if self.ml_fallback and self.ml_detector and result.confidence < self.config.confidence_threshold:
+                print(f"  Page {index}: low CV confidence ({result.confidence:.2f}), trying ML...")
+                ml_result = self.ml_detector.detect(img)
+
+                # Use ML result if it found panels
+                if ml_result.panels:
+                    result = ml_result
+                    source = DetectionSource.YOLO
 
         # Print debug info and save HTML
         if debug_ctx and debug_ctx.enabled:
@@ -155,7 +190,7 @@ class PreviewApp:
             "panels": [p.model_dump() for p in result.panels],
             "order": [result.panels[i].id for i in ordered_indices],
             "order_confidence": 0.9,
-            "source": DetectionSource.CV.value,
+            "source": source.value,
             "user_override": False,
             "cv_confidence": float(result.confidence),
             "gutters": result.gutters,
