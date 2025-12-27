@@ -6,8 +6,6 @@ A comparative analysis of existing comic panel detection tools for informing Pan
 
 ## Kumiko
 
-**[Full Analysis](kumiko-analysis.md)**
-
 ### Summary
 OpenCV-based panel detection using contour detection and line segment analysis.
 
@@ -56,8 +54,6 @@ https://github.com/njean42/kumiko
 ---
 
 ## C.A.P.E (Comic Analysis and Panel Extraction)
-
-**[Full Analysis](cape-analysis.md)**
 
 ### Summary
 OpenCV-based panel detector with Electron-based editor UI. Semi-abandoned (~2015).
@@ -114,8 +110,6 @@ https://github.com/CodeMinion/C.A.P.E
 ---
 
 ## best-comic-panel-detection (YOLOv12)
-
-**[Full Analysis](yolov12-analysis.md)**
 
 ### Summary
 YOLOv12x model fine-tuned on comic panels for bbox detection.
@@ -177,8 +171,6 @@ https://huggingface.co/mosesb/best-comic-panel-detection
 
 ## segment-anything-comic (SAM-comic)
 
-**[Full Analysis](sam-comic-analysis.md)**
-
 ### Summary
 SAM (Segment Anything Model) fine-tuned for comic panel polygon segmentation.
 
@@ -214,8 +206,6 @@ https://github.com/Vrroom/segment-anything-comic
 ---
 
 ## DeepPanel
-
-**[Full Analysis](deeppanel-analysis.md)**
 
 ### Summary
 U-Net CNN trained for comic panel segmentation, optimized for mobile.
@@ -253,8 +243,6 @@ U-Net CNN trained for comic panel segmentation, optimized for mobile.
 - TensorFlow dependency
 - No ordering provided
 - Semi-active project
-
-**Note (2025):** The **Panels app** (iOS) has announced it will open-source its ML pipeline in Jan 2026. This will likely supersede DeepPanel as the primary reference for mobile-optimized comic segmentation.
 
 ### Training Data Format
 ```
