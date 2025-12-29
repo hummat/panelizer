@@ -29,7 +29,8 @@ dev = [
   "twine>=5.0.0",
 ]
 ml = [
-  "torch>=2.0.0",
+  "torch>=2.0.0,<2.7",
+  "torchvision>=0.15.0,<0.22",
   "ultralytics>=8.3.0",
   "huggingface_hub>=0.20.0",
 ]
@@ -49,7 +50,8 @@ dev = [
   "twine>=5.0.0",
 ]
 ml = [
-  "torch>=2.0.0",
+  "torch>=2.0.0,<2.7",
+  "torchvision>=0.15.0,<0.22",
   "ultralytics>=8.3.0",
   "huggingface_hub>=0.20.0",
 ]
@@ -92,17 +94,21 @@ reportMissingModuleSource = "warning"
 venvPath = "."
 venv = ".venv"
 
-# uv configuration for CPU-only PyTorch
+# uv configuration for CPU-only PyTorch (ml-cpu extra)
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-explicit = true  # Only use when explicitly requested
+explicit = true
 
 [tool.uv.sources]
-# When ml-cpu extra is used, get torch/torchvision from CPU index
+# ml-cpu extra: use CPU-only wheels (for CI, macOS without MPS, etc.)
 torch = [
   { index = "pytorch-cpu", extra = "ml-cpu" },
 ]
 torchvision = [
   { index = "pytorch-cpu", extra = "ml-cpu" },
 ]
+
+# NOTE: For CUDA support, install torch manually first:
+#   uv pip install torch torchvision --index https://download.pytorch.org/whl/cu124
+#   uv sync --extra ml --extra dev
