@@ -28,12 +28,14 @@ This project aims to close that gap.
 | **[BDReader](https://sourceforge.net/projects/bdreader/)** | Heuristics | Desktop (Qt) | None | Abandoned (~2015) |
 | **[Comic Smart Panels](https://github.com/zoran123456/Comic-Smart-Panels)** | Manual only | Windows app | Full manual | Abandoned (2015) |
 | **[Panels app](https://panels.app/)** | ML (proprietary) | iOS/Android | None | Commercial, experimental |
+| **[Smart Comic Reader](https://smartcomicreader.com/)** | Heuristics/CV | iOS | None | Commercial, active |
 | **Comic Trim** | Heuristics | Android | None | Discontinued. ~25% accuracy. |
 
 ### Commercial
 
 - **Comixology Guided View** — Manual curation by publishers. Gold standard UX, but locked ecosystem.
 - **Marvel Smart Panels** — Similar to Comixology, proprietary.
+- **Smart Comic Reader** — Automated "Smart Mode" for iOS.
 
 ### Gap analysis
 

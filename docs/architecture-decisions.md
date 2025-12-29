@@ -55,5 +55,6 @@ Our decisions are backed by deep dives into the following tools and technologies
 
 ### Commercial Gold Standards
 *   **[Panels App](panels-app-analysis.md)** (UX & smooth transitions)
+*   **[Smart Comic Reader](smart-comic-reader-analysis.md)** (Automated "Smart Mode")
 *   **[Comixology Guided View](comixology-analysis.md)** (Cinematic narrative flow)
 *   **[Marvel Smart Panels](marvel-smart-panels-analysis.md)** (Adaptive storytelling)

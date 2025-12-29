@@ -29,11 +29,21 @@ The detection pipeline (`pipeline.py`) processes each page image through the fol
 
 A key differentiator of Panelizer is its ability to self-assess quality. The confidence score (0.0 - 1.0) determines if the page should be flagged for Stage 2 (ML/YOLO).
 
-The score is a geometric mean of three factors, implemented in `detector.py`:
+The score is a geometric mean of four factors, implemented in `detector.py` and `confidence.py`:
 
-$$ Confidence = \\sqrt[3]{F_{count} \\times F_{coverage} \\times F_{split}} $$
+$$ Confidence = \\sqrt[4]{F_{weighted\_panels} \\times F_{count} \\times F_{coverage} \\times F_{gutter\_variance}} $$
 
-### 1. Panel Count Factor ($F_{count}$)
+### 1. Weighted Panel Confidence ($F_{weighted\_panels}$)
+
+The area-weighted average of individual panel confidence scores. Each panel is scored on:
+- **Aspect Ratio**: Penalizes extreme shapes (< 0.2 or > 5).
+- **Size**: Penalizes very small (< 3%) or very large (> 70%) panels.
+- **Rectangularity**: How well the polygon fits its bounding box.
+- **Gutter Quality**: Consistency of gaps to neighbors.
+- **Edge Strength**: Gradient magnitude along borders.
+- **Split Quality**: If created by a split, how well it aligns with image segments.
+
+### 2. Panel Count Factor ($F_{count}$)
 
 Checks if the number of detected panels is "reasonable" for a comic page.
 
@@ -41,19 +51,18 @@ Checks if the number of detected panels is "reasonable" for a comic page.
 - **2-12 panels**: $1.0$ (Healthy range).
 - **>12 panels**: $0.5$ (Likely over-fragmentation/noise).
 
-### 2. Coverage Factor ($F_{coverage}$)
+### 3. Coverage Factor ($F_{coverage}$)
 
 Checks what percentage of the page area is covered by panels.
 
 - **70% - 95%**: $1.0$ (Healthy: typical comic page with margins).
 - **Otherwise**: $0.8$ (Too empty or too full, suggesting missed panels or false positives).
 
-### 3. Split Quality Factor ($F_{split}$)
+### 4. Gutter Variance Factor ($F_{gutter\_variance}$)
 
-If panels were split using line segments (LSD), how "strong" were those segments?
-
-- Average of `split_coverages` (fraction of the split line covered by actual detected image segments).
-- If no splits occurred: $0.8$ (Conservative baseline).
+Checks the consistency of gutter widths across the page.
+- **Low Variance**: High score (consistent grid).
+- **High Variance**: Low score (irregular spacing or detection errors).
 
 ### Thresholds
 
