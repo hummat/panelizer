@@ -318,11 +318,23 @@ Current focus:
 ## Development
 
 ```bash
-uv sync                  # install dependencies
+uv sync                  # install core dependencies
 uv run ruff format .     # format
 uv run ruff check .      # lint
 uv run pyright           # type check
 uv run pytest            # test (80% coverage required)
+```
+
+### ML Dependencies
+
+```bash
+# CPU-only (CI, macOS, or no GPU)
+uv sync --extra ml-cpu --extra dev
+
+# CUDA (NVIDIA GPU) — two-step install
+uv sync --extra ml --extra dev
+uv pip install --reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv run --no-sync panelizer preview ...  # use --no-sync to preserve CUDA wheels
 ```
 
 See `AGENTS.md` for contribution guidelines.
