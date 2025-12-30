@@ -9,6 +9,10 @@ const state = {
   // Free pan/zoom state
   freeMode: false,
   transform: { tx: 0, ty: 0, scale: 1 },
+  // Debug view state
+  debug: false,
+  debugSteps: [], // [{name, file}, ...]
+  debugView: "", // "" = original, or filename
 };
 
 const els = {
@@ -26,6 +30,25 @@ const els = {
   toggleOverlay: document.getElementById("toggleOverlay"),
   pageJump: document.getElementById("pageJump"),
   goPage: document.getElementById("goPage"),
+  debugView: document.getElementById("debugView"),
+  toggleDebug: document.getElementById("toggleDebug"),
+  // Settings panel
+  settingsPanel: document.getElementById("settingsPanel"),
+  minSegmentRatio: document.getElementById("minSegmentRatio"),
+  minPanelRatio: document.getElementById("minPanelRatio"),
+  maxSegments: document.getElementById("maxSegments"),
+  panelExpansion: document.getElementById("panelExpansion"),
+  smallPanelGrouping: document.getElementById("smallPanelGrouping"),
+  bigPanelGrouping: document.getElementById("bigPanelGrouping"),
+  panelSplitting: document.getElementById("panelSplitting"),
+  useDenoising: document.getElementById("useDenoising"),
+  useCanny: document.getElementById("useCanny"),
+  useMorphClose: document.getElementById("useMorphClose"),
+  preferAxisAligned: document.getElementById("preferAxisAligned"),
+  useLsdNfa: document.getElementById("useLsdNfa"),
+  skipScoring: document.getElementById("skipScoring"),
+  maxDimension: document.getElementById("maxDimension"),
+  applySettings: document.getElementById("applySettings"),
 };
 
 function setError(message) {
@@ -55,6 +78,18 @@ function pageCount() {
   return state.book?.page_count ?? 0;
 }
 
+function imageScaleFromPageToCurrentImage() {
+  // Panels are stored in original page pixels (`state.page.size`), but debug images may be downscaled
+  // (e.g. via CV `max_dimension`). When showing a debug image, scale panel bboxes into the current
+  // image's pixel coordinate space so overlays and "fit to panel" remain correct.
+  const pageW = state.page?.size?.[0] ?? 0;
+  const pageH = state.page?.size?.[1] ?? 0;
+  const imgW = els.img.naturalWidth ?? 0;
+  const imgH = els.img.naturalHeight ?? 0;
+  if (!pageW || !pageH || !imgW || !imgH) return { sx: 1, sy: 1 };
+  return { sx: imgW / pageW, sy: imgH / pageH };
+}
+
 function currentPanelBBox() {
   if (!state.page?.order?.length) return null;
   const id = state.page.order[clamp(state.panelIndex, 0, state.page.order.length - 1)];
@@ -64,22 +99,28 @@ function currentPanelBBox() {
 function updateStatus() {
   const pageTotal = pageCount();
   const pageNum = pageTotal ? state.pageIndex + 1 : 0;
+  const skipScoring = state.page?.skip_scoring ?? false;
 
   let panelPart = "No panels";
   let panelConfText = null;
   if (state.page?.order?.length) {
     panelPart = `Panel ${state.panelIndex + 1}/${state.page.order.length}`;
-    const id = state.page.order[clamp(state.panelIndex, 0, state.page.order.length - 1)];
-    const conf = state.page.panels?.find((p) => p.id === id)?.confidence;
-    panelConfText = typeof conf === "number" ? `Panel conf ${conf.toFixed(2)}` : "Panel conf ?";
+    if (!skipScoring) {
+      const id = state.page.order[clamp(state.panelIndex, 0, state.page.order.length - 1)];
+      const conf = state.page.panels?.find((p) => p.id === id)?.confidence;
+      panelConfText = typeof conf === "number" ? `Panel conf ${conf.toFixed(2)}` : "Panel conf ?";
+    }
   }
 
-  const cvConf = state.page?.cv_confidence;
-  const cvConfText = typeof cvConf === "number" ? `CV conf ${cvConf.toFixed(2)}` : "CV conf ?";
   const viewText = state.freeMode ? "free view" : `${state.mode} view`;
   const parts = [`Page ${pageNum}/${pageTotal}`, panelPart];
   if (panelConfText) parts.push(panelConfText);
-  parts.push(cvConfText, viewText);
+  if (!skipScoring) {
+    const cvConf = state.page?.cv_confidence;
+    const cvConfText = typeof cvConf === "number" ? `CV conf ${cvConf.toFixed(2)}` : "CV conf ?";
+    parts.push(cvConfText);
+  }
+  parts.push(viewText);
   els.status.textContent = parts.join(" · ");
 
   const dir = state.book?.reading_direction ?? "?";
@@ -96,7 +137,9 @@ function drawOverlay() {
   if (!state.page?.panels?.length) return;
   if (!els.img.naturalWidth || !els.img.naturalHeight) return;
 
+  const { sx, sy } = imageScaleFromPageToCurrentImage();
   const currentId = state.page.order?.[state.panelIndex] ?? null;
+  const skipScoring = state.page?.skip_scoring ?? false;
   const panelsToDraw =
     state.mode === "panel"
       ? state.page.panels.filter((p) => p.id === currentId)
@@ -111,17 +154,21 @@ function drawOverlay() {
     const [x, y, w, h] = panel.bbox;
     const box = document.createElement("div");
     box.className = "box" + (currentId === panel.id ? " current" : "");
-    // Boxes are specified in natural image pixels; the overlay is transformed like the image.
-    box.style.left = `${x}px`;
-    box.style.top = `${y}px`;
-    box.style.width = `${w}px`;
-    box.style.height = `${h}px`;
+    // Boxes are stored in original page pixels; the overlay uses the current image pixel space.
+    box.style.left = `${x * sx}px`;
+    box.style.top = `${y * sy}px`;
+    box.style.width = `${w * sx}px`;
+    box.style.height = `${h * sy}px`;
 
     const label = document.createElement("div");
     label.className = "label";
     const n = orderIndexById.get(panel.id) ?? "?";
-    const conf = typeof panel.confidence === "number" ? panel.confidence.toFixed(2) : "?";
-    label.textContent = `#${n} cv:${conf}`;
+    if (skipScoring) {
+      label.textContent = `#${n}`;
+    } else {
+      const conf = typeof panel.confidence === "number" ? panel.confidence.toFixed(2) : "?";
+      label.textContent = `#${n} cv:${conf}`;
+    }
     box.appendChild(label);
 
     els.overlay.appendChild(box);
@@ -164,7 +211,12 @@ function computeFitTransform() {
   const bbox = currentPanelBBox();
   if (!bbox) return null;
 
-  const [x, y, w, h] = bbox;
+  const { sx, sy } = imageScaleFromPageToCurrentImage();
+  const [x0, y0, w0, h0] = bbox;
+  const x = x0 * sx;
+  const y = y0 * sy;
+  const w = w0 * sx;
+  const h = h0 * sy;
   const scale = Math.min(vw / w, vh / h);
   const tx = -x * scale + (vw - w * scale) / 2;
   const ty = -y * scale + (vh - h * scale) / 2;
@@ -199,18 +251,28 @@ async function loadBook() {
   state.book = await fetchJSON("/api/book");
   state.pageIndex = clamp(state.pageIndex, 0, Math.max(0, pageCount() - 1));
   els.pageJump.value = String(state.pageIndex + 1);
+  // Sync debug state from server
+  state.debug = state.book.debug ?? false;
+  updateDebugUI();
   updateStatus();
 }
 
-async function loadPage() {
+async function loadPage(refresh = false) {
   setError("");
   const idx = state.pageIndex;
+  const url = `/api/page/${idx}.json` + (refresh ? "?refresh=1" : "");
 
-  state.page = await fetchJSON(`/api/page/${idx}.json`);
+  state.page = await fetchJSON(url);
   state.panelIndex = 0;
 
+  // Reset debug view to original when changing pages
+  state.debugView = "";
   els.img.src = `/api/page/${idx}.png`;
   els.pageJump.value = String(idx + 1);
+
+  // Load debug steps if debug mode is on
+  await loadDebugSteps();
+
   updateStatus();
 }
 
@@ -227,6 +289,114 @@ function setOverlay(on) {
   els.toggleOverlay.textContent = state.overlay ? "Overlay off" : "Overlay on";
   syncOverlayToImage();
   drawOverlay();
+}
+
+// Debug view functions
+function updateDebugUI() {
+  els.toggleDebug.textContent = state.debug ? "Debug on" : "Debug off";
+  els.debugView.disabled = !state.debug;
+  els.settingsPanel.hidden = !state.debug;
+}
+
+// Settings functions
+function populateSettings(settings) {
+  els.minSegmentRatio.value = settings.min_segment_ratio;
+  els.minPanelRatio.value = settings.min_panel_ratio;
+  els.maxSegments.value = settings.max_segments;
+  els.panelExpansion.checked = settings.panel_expansion;
+  els.smallPanelGrouping.checked = settings.small_panel_grouping;
+  els.bigPanelGrouping.checked = settings.big_panel_grouping;
+  els.panelSplitting.checked = settings.panel_splitting;
+  els.useDenoising.checked = settings.use_denoising;
+  els.useCanny.checked = settings.use_canny;
+  els.useMorphClose.checked = settings.use_morphological_close;
+  els.preferAxisAligned.checked = settings.prefer_axis_aligned;
+  els.useLsdNfa.checked = settings.use_lsd_nfa;
+  els.skipScoring.checked = settings.skip_scoring;
+  els.maxDimension.value = settings.max_dimension;
+}
+
+async function loadSettings() {
+  const settings = await fetchJSON("/api/settings");
+  populateSettings(settings);
+}
+
+async function applySettings() {
+  const params = new URLSearchParams({
+    min_segment_ratio: els.minSegmentRatio.value,
+    min_panel_ratio: els.minPanelRatio.value,
+    max_segments: els.maxSegments.value,
+    panel_expansion: els.panelExpansion.checked ? "1" : "0",
+    small_panel_grouping: els.smallPanelGrouping.checked ? "1" : "0",
+    big_panel_grouping: els.bigPanelGrouping.checked ? "1" : "0",
+    panel_splitting: els.panelSplitting.checked ? "1" : "0",
+    use_denoising: els.useDenoising.checked ? "1" : "0",
+    use_canny: els.useCanny.checked ? "1" : "0",
+    use_morphological_close: els.useMorphClose.checked ? "1" : "0",
+    prefer_axis_aligned: els.preferAxisAligned.checked ? "1" : "0",
+    use_lsd_nfa: els.useLsdNfa.checked ? "1" : "0",
+    skip_scoring: els.skipScoring.checked ? "1" : "0",
+    max_dimension: els.maxDimension.value,
+  });
+  await fetchJSON(`/api/settings?${params}`);
+  await loadPage(true); // Refresh with new settings
+}
+
+function populateDebugDropdown() {
+  // Clear existing options and rebuild
+  els.debugView.replaceChildren();
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = "Original";
+  els.debugView.appendChild(defaultOpt);
+
+  for (const step of state.debugSteps) {
+    const opt = document.createElement("option");
+    opt.value = step.file;
+    opt.textContent = step.name;
+    els.debugView.appendChild(opt);
+  }
+  // Reset to original view
+  els.debugView.value = "";
+  state.debugView = "";
+}
+
+function applyDebugView() {
+  const idx = state.pageIndex;
+  if (state.debugView && state.debug) {
+    els.img.src = `/api/page/${idx}/debug/${state.debugView}`;
+  } else {
+    els.img.src = `/api/page/${idx}.png`;
+  }
+}
+
+async function toggleDebug() {
+  const newState = !state.debug;
+  await fetchJSON(`/api/debug?set=${newState ? 1 : 0}`);
+  state.debug = newState;
+  updateDebugUI();
+
+  if (state.debug) {
+    // Reload page with refresh to generate debug images
+    await loadPage(true);
+  } else {
+    // Clear debug view and reset to original
+    state.debugSteps = [];
+    state.debugView = "";
+    populateDebugDropdown();
+    applyDebugView();
+  }
+}
+
+async function loadDebugSteps() {
+  if (!state.debug) {
+    state.debugSteps = [];
+    populateDebugDropdown();
+    return;
+  }
+  const data = await fetchJSON(`/api/page/${state.pageIndex}/debug.json`);
+  state.debugSteps = data.steps || [];
+  populateDebugDropdown();
 }
 
 async function nextPanel() {
@@ -290,6 +460,12 @@ function attachEvents() {
   els.nextPanel.addEventListener("click", () => nextPanel().catch((e) => setError(String(e))));
   els.toggleMode.addEventListener("click", () => setMode(state.mode === "page" ? "panel" : "page"));
   els.toggleOverlay.addEventListener("click", () => setOverlay(!state.overlay));
+  els.toggleDebug.addEventListener("click", () => toggleDebug().catch((e) => setError(String(e))));
+  els.debugView.addEventListener("change", () => {
+    state.debugView = els.debugView.value;
+    applyDebugView();
+  });
+  els.applySettings.addEventListener("click", () => applySettings().catch((e) => setError(String(e))));
   function goToPage() {
     const wanted = Number.parseInt(els.pageJump.value, 10);
     if (!Number.isFinite(wanted)) return;
@@ -441,6 +617,7 @@ async function main() {
 
   try {
     await loadBook();
+    await loadSettings();
     await loadPage();
     els.viewport.focus();
   } catch (e) {

@@ -107,13 +107,22 @@ class InternalPanel:
         return hash(self.__str__())
 
     def is_small(self, extra_ratio: float = 1.0) -> bool:
-        """Check if panel is smaller than minimum size threshold."""
-        return any(
-            [
-                self.w() < self.img_size[0] * self.small_panel_ratio * extra_ratio,
-                self.h() < self.img_size[1] * self.small_panel_ratio * extra_ratio,
-            ]
-        )
+        """Check if panel is smaller than minimum size threshold.
+
+        Uses area-based check to allow tall/narrow or wide/short panels,
+        but filters slivers where either dimension is < min_ratio/3.
+        """
+        ratio = self.small_panel_ratio * extra_ratio
+        min_area = ratio**2 * self.img_size[0] * self.img_size[1]
+        min_dim_w = self.img_size[0] * ratio / 3  # Allow 3:1 aspect ratio
+        min_dim_h = self.img_size[1] * ratio / 3
+
+        # Small if area too small OR either dimension is a sliver
+        if self.w() * self.h() < min_area:
+            return True
+        if self.w() < min_dim_w or self.h() < min_dim_h:
+            return True
+        return False
 
     def is_very_small(self) -> bool:
         return self.is_small(1 / 10)

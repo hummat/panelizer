@@ -20,6 +20,10 @@
             <button id="prevPage" type="button">Prev page</button>
             <button id="nextPage" type="button">Next page</button>
             <div class="spacer"></div>
+            <select id="debugView" title="Debug view">
+              <option value="">Original</option>
+            </select>
+            <button id="toggleDebug" type="button">Debug off</button>
             <button id="toggleMode" type="button">Panel view</button>
             <button id="toggleOverlay" type="button">Overlay on</button>
           </div>
@@ -33,6 +37,34 @@
           <div class="hint" id="hint">
             Keys: ←/→ panel, Shift+←/→ page, Space toggle view · Drag to pan, scroll to zoom
           </div>
+          <details id="settingsPanel" class="settings-panel" hidden>
+            <summary>CV Settings</summary>
+            <div class="settings-grid">
+              <label>Min segment ratio
+                <input type="number" id="minSegmentRatio" min="0.01" max="0.5" step="0.01" />
+              </label>
+              <label>Min panel ratio
+                <input type="number" id="minPanelRatio" min="0.01" max="0.5" step="0.01" />
+              </label>
+              <label>Max segments
+                <input type="number" id="maxSegments" min="50" max="2000" step="50" />
+              </label>
+              <label><input type="checkbox" id="panelExpansion" /> Panel expansion</label>
+              <label><input type="checkbox" id="smallPanelGrouping" /> Small panel grouping</label>
+              <label><input type="checkbox" id="bigPanelGrouping" /> Big panel grouping</label>
+              <label><input type="checkbox" id="panelSplitting" /> Panel splitting (slow)</label>
+              <label><input type="checkbox" id="useDenoising" /> Denoising</label>
+              <label><input type="checkbox" id="useCanny" /> Use Canny (vs Sobel)</label>
+              <label><input type="checkbox" id="useMorphClose" /> Morphological close</label>
+              <label><input type="checkbox" id="preferAxisAligned" /> Prefer axis-aligned segments</label>
+              <label><input type="checkbox" id="useLsdNfa" /> Use LSD NFA scores (slower)</label>
+              <label><input type="checkbox" id="skipScoring" /> Skip scoring (faster)</label>
+              <label>Max dimension (0=no limit)
+                <input type="number" id="maxDimension" min="0" max="8000" step="500" />
+              </label>
+              <button type="button" id="applySettings">Apply & Refresh</button>
+            </div>
+          </details>
         </section>
 
         <section class="viewer">

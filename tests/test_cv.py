@@ -3,7 +3,44 @@ from PIL import Image, ImageDraw
 from panelizer.cv import CVDetector
 from panelizer.cv.detector import _clamp_bbox_xywh
 from panelizer.cv.panel_internal import InternalPanel
+from panelizer.cv.pipeline import _compute_axis_alignment
 from panelizer.cv.segment import Segment
+
+
+class TestAxisAlignment:
+    def test_horizontal_segment(self) -> None:
+        # Perfectly horizontal = 1.0
+        assert _compute_axis_alignment(100, 0) == 1.0
+
+    def test_vertical_segment(self) -> None:
+        # Perfectly vertical = 1.0
+        assert _compute_axis_alignment(0, 100) == 1.0
+
+    def test_diagonal_segment(self) -> None:
+        # 45 degrees = 0.0 (worst for gutters)
+        assert _compute_axis_alignment(100, 100) == 0.0
+
+    def test_slight_angle(self) -> None:
+        # 22.5 degrees = 0.5
+        import math
+
+        dx = 100
+        dy = dx * math.tan(math.radians(22.5))
+        result = _compute_axis_alignment(dx, dy)
+        assert 0.4 < result < 0.6  # Allow some floating point tolerance
+
+    def test_steep_angle(self) -> None:
+        # 67.5 degrees = 0.5 (steep angle, closer to vertical)
+        import math
+
+        dy = 100
+        dx = dy * math.tan(math.radians(90 - 67.5))  # ~22.5 from vertical
+        result = _compute_axis_alignment(dx, dy)
+        assert 0.4 < result < 0.6  # Allow some floating point tolerance
+
+    def test_zero_segment(self) -> None:
+        # Zero length = 0.0
+        assert _compute_axis_alignment(0, 0) == 0.0
 
 
 class TestSegment:
@@ -12,11 +49,26 @@ class TestSegment:
         assert seg.a == (0, 0)
         assert seg.b == (10, 10)
 
+    def test_segment_equality_with_non_segment(self) -> None:
+        seg = Segment((0, 0), (10, 10))
+        assert seg != "not a segment"
+        assert seg != (0, 0, 10, 10)
+        assert seg != None  # noqa: E711
+
     def test_segment_distance(self) -> None:
         seg = Segment((0, 0), (3, 4))
         assert seg.dist() == 5.0  # 3-4-5 triangle
         assert seg.dist_x() == 3
         assert seg.dist_y() == 4
+
+    def test_segment_distance_signed(self) -> None:
+        seg = Segment((10, 20), (5, 15))  # negative direction
+        # Unsigned (default)
+        assert seg.dist_x() == 5
+        assert seg.dist_y() == 5
+        # Signed
+        assert seg.dist_x(keep_sign=True) == -5
+        assert seg.dist_y(keep_sign=True) == -5
 
     def test_segment_center(self) -> None:
         seg = Segment((0, 0), (10, 10))
@@ -93,6 +145,18 @@ class TestSegment:
         # Should merge into fewer segments
         assert len(unified) <= len(segs)
 
+    def test_segment_intersect_all(self) -> None:
+        # Segment that overlaps with multiple others
+        main_seg = Segment((0, 0), (50, 0))
+        others = [
+            Segment((5, 0), (15, 0)),  # Overlaps
+            Segment((20, 0), (30, 0)),  # Overlaps
+            Segment((0, 100), (50, 100)),  # No overlap (different y)
+        ]
+        result = main_seg.intersect_all(others)
+        # Should find the overlapping segments and unify them
+        assert len(result) >= 1
+
     def test_segment_projected_point(self) -> None:
         seg = Segment((0, 0), (10, 0))
         # Point above the segment
@@ -104,6 +168,38 @@ class TestSegment:
         seg = Segment((0, 0), (10, 10))
         assert str(seg) == "((0, 0), (10, 10))"
 
+    def test_segment_intersect_too_far_apart(self) -> None:
+        # Parallel segments close enough in x/y but too far on perpendicular axis
+        # after projection distance check (line 115 check)
+        seg1 = Segment((0, 0), (100, 0))  # Horizontal at y=0
+        seg2 = Segment((0, 50), (100, 50))  # Parallel at y=50, too far for gutter
+        assert seg1.intersect(seg2) is None
+
+    def test_segment_zero_length_projected_point(self) -> None:
+        # Zero-length segment (both endpoints same)
+        seg = Segment((5, 5), (5, 5))
+        # Should return the segment's single point
+        assert seg.projected_point((10, 10)) == (5, 5)
+
+    def test_segment_intersect_angle_too_big(self) -> None:
+        # Segments at ~45 degrees to each other - too different to merge
+        seg1 = Segment((0, 0), (100, 0))  # Horizontal
+        seg2 = Segment((50, 50), (150, 150))  # 45-degree diagonal
+        # Angle difference is too big (>10 degrees)
+        assert seg1.intersect(seg2) is None
+
+    def test_segment_intersect_segments_apart(self) -> None:
+        # Parallel segments but far apart
+        seg1 = Segment((0, 0), (100, 0))  # Horizontal at y=0
+        seg2 = Segment((0, 200), (100, 200))  # Horizontal at y=200, far apart
+        assert seg1.intersect(seg2) is None
+
+    def test_segment_union_returns_none(self) -> None:
+        # Segments that don't intersect
+        seg1 = Segment((0, 0), (100, 0))
+        seg2 = Segment((0, 200), (100, 200))
+        assert seg1.union(seg2) is None
+
 
 class TestInternalPanel:
     def test_panel_creation_from_xywh(self) -> None:
@@ -112,6 +208,12 @@ class TestInternalPanel:
         assert panel.y == 20
         assert panel.w() == 100
         assert panel.h() == 150
+
+    def test_panel_creation_requires_xywh_or_polygon(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="requires either xywh or polygon"):
+            InternalPanel((800, 600), 0.1)  # Neither provided
 
     def test_panel_from_xyrb(self) -> None:
         panel = InternalPanel.from_xyrb((800, 600), 0.1, 10, 20, 110, 170)
@@ -222,12 +324,65 @@ class TestInternalPanel:
         assert panel1 == panel2
         assert panel1 != panel3
 
+    def test_panel_equality_with_non_panel(self) -> None:
+        panel = InternalPanel((800, 600), 0.1, xywh=(10, 20, 100, 150))
+        assert panel != "not a panel"
+        assert panel != (10, 20, 100, 150)
+        assert panel != None  # noqa: E711
+
+    def test_panel_str_and_hash(self) -> None:
+        panel = InternalPanel((800, 600), 0.1, xywh=(10, 20, 100, 150))
+        # str should be "x1xy1-x2xy2" format (right=10+100=110, bottom=20+150=170)
+        assert str(panel) == "10x20-110x170"
+        # hash should be hash of str
+        assert hash(panel) == hash("10x20-110x170")
+
+    def test_panel_wt_ht(self) -> None:
+        panel = InternalPanel((800, 600), 0.1, xywh=(10, 20, 100, 150))
+        # Width tolerance: 10% of width
+        assert panel.wt() == 100 / 10  # 10.0
+        # Height tolerance: 10% of height
+        assert panel.ht() == 150 / 10  # 15.0
+
+    def test_panel_is_very_small(self) -> None:
+        # Very small panel (1% of 10% = 0.1% of image)
+        tiny = InternalPanel((1000, 1000), 0.1, xywh=(0, 0, 5, 5))
+        assert tiny.is_very_small()
+        # Normal panel
+        normal = InternalPanel((1000, 1000), 0.1, xywh=(0, 0, 200, 200))
+        assert not normal.is_very_small()
+
+    def test_panel_is_small_sliver(self) -> None:
+        # Sliver panel: adequate area but thin in one dimension
+        # For ratio=1, min_panel_ratio=0.1:
+        # - min_area = 1000 * 1000 * 0.1 * 0.1 = 10000
+        # - min_dim = 1000 * 0.1 / 3 = 33.33
+        # Panel 400x30 = 12000 (passes area) but 30 < 33.33 (fails dimension)
+        sliver = InternalPanel((1000, 1000), 0.1, xywh=(0, 0, 400, 30))
+        assert sliver.is_small()  # Hits line 124: dimension check
+
+    def test_panel_from_polygon(self) -> None:
+        import numpy as np
+
+        # Create a polygon that forms a rectangle
+        # Polygon from (10,20) to (109,169) should give w=100, h=150
+        polygon = np.array([[[10, 20]], [[109, 20]], [[109, 169]], [[10, 169]]], dtype=np.int32)
+        panel = InternalPanel((800, 600), 0.1, polygon=polygon)
+        assert panel.x == 10
+        assert panel.y == 20
+        assert panel.w() == 100
+        assert panel.h() == 150
+
 
 class TestCVDetector:
     def test_clamp_bbox_xywh(self) -> None:
         assert _clamp_bbox_xywh((-10, -20, 9999, 9999), img_w=100, img_h=80) == (0, 0, 100, 80)
         assert _clamp_bbox_xywh((99, 79, 10, 10), img_w=100, img_h=80) == (99, 79, 1, 1)
         assert _clamp_bbox_xywh((10, 10, 0, -5), img_w=100, img_h=80) == (10, 10, 1, 1)
+        # Edge case: zero/negative image dimensions
+        assert _clamp_bbox_xywh((10, 10, 50, 50), img_w=0, img_h=100) == (0, 0, 0, 0)
+        assert _clamp_bbox_xywh((10, 10, 50, 50), img_w=100, img_h=0) == (0, 0, 0, 0)
+        assert _clamp_bbox_xywh((10, 10, 50, 50), img_w=-5, img_h=-10) == (0, 0, 0, 0)
 
     def test_detect_synthetic_panels(self) -> None:
         # Create a synthetic image with clear panel-like rectangles
@@ -343,6 +498,130 @@ class TestCVDetector:
         # Both should return valid results
         assert isinstance(result_default.panels, list)
         assert isinstance(result_small.panels, list)
+
+    def test_postprocessing_options(self) -> None:
+        """Test detector with post-processing options enabled."""
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw a 2x2 grid of panels
+        draw.rectangle([50, 50, 350, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 50, 700, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([50, 300, 350, 500], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 300, 700, 500], outline=(0, 0, 0), width=3)
+
+        # Test with all post-processing options enabled (including expensive panel_splitting)
+        detector = CVDetector(
+            panel_expansion=True,
+            small_panel_grouping=True,
+            big_panel_grouping=True,
+            panel_splitting=True,
+            use_morphological_close=True,
+            use_canny=True,
+        )
+        result = detector.detect(img)
+
+        assert isinstance(result.panels, list)
+        assert isinstance(result.confidence, float)
+
+    def test_lsd_settings(self) -> None:
+        """Test LSD settings: NFA scoring, axis alignment, max segments."""
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw panels with clear horizontal/vertical gutters
+        draw.rectangle([50, 50, 350, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 50, 700, 250], outline=(0, 0, 0), width=3)
+
+        # Test with NFA scoring enabled (uses LSD_REFINE_ADV mode)
+        # Must enable panel_splitting or big_panel_grouping to trigger LSD
+        detector_nfa = CVDetector(
+            panel_splitting=True,
+            use_lsd_nfa=True,
+            prefer_axis_aligned=True,
+            max_segments=100,
+        )
+        result_nfa = detector_nfa.detect(img)
+        assert isinstance(result_nfa.panels, list)
+
+        # Test with axis alignment disabled
+        detector_no_axis = CVDetector(
+            panel_splitting=True,
+            prefer_axis_aligned=False,
+            max_segments=200,
+        )
+        result_no_axis = detector_no_axis.detect(img)
+        assert isinstance(result_no_axis.panels, list)
+
+    def test_mvp_mode_no_splitting(self) -> None:
+        """Test MVP mode with panel_splitting disabled (default, fast)."""
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw panels
+        draw.rectangle([50, 50, 350, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 50, 700, 250], outline=(0, 0, 0), width=3)
+
+        # Default settings: panel_splitting=False (MVP mode)
+        detector = CVDetector()
+        result = detector.detect(img)
+
+        assert isinstance(result.panels, list)
+        assert isinstance(result.confidence, float)
+
+    def test_big_panel_grouping_triggers_lsd(self) -> None:
+        """Test that big_panel_grouping also triggers LSD segment detection."""
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw panels
+        draw.rectangle([50, 50, 350, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 50, 700, 250], outline=(0, 0, 0), width=3)
+
+        # big_panel_grouping=True should trigger LSD even without panel_splitting
+        detector = CVDetector(big_panel_grouping=True)
+        result = detector.detect(img)
+
+        assert isinstance(result.panels, list)
+
+    def test_max_segments_capping(self) -> None:
+        """Test that max_segments caps the number of detected segments."""
+        # Create image with many lines to trigger segment capping
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw a grid of many small rectangles to generate many segments
+        for row in range(10):
+            for col in range(10):
+                x = 20 + col * 75
+                y = 20 + row * 55
+                draw.rectangle([x, y, x + 60, y + 40], outline=(0, 0, 0), width=2)
+
+        # Use very low max_segments to trigger the capping logic
+        # Must enable panel_splitting to trigger LSD segment detection
+        detector = CVDetector(panel_splitting=True, max_segments=10, min_segment_ratio=0.01)
+        result = detector.detect(img)
+        assert isinstance(result.panels, list)
+
+    def test_skip_scoring_mode(self) -> None:
+        """Test skip_scoring mode for faster CV-only detection."""
+        img = Image.new("RGB", (800, 600), color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Draw panels
+        draw.rectangle([50, 50, 350, 250], outline=(0, 0, 0), width=3)
+        draw.rectangle([400, 50, 700, 250], outline=(0, 0, 0), width=3)
+
+        # skip_scoring=True skips confidence calculation
+        detector = CVDetector(skip_scoring=True)
+        result = detector.detect(img)
+
+        assert isinstance(result.panels, list)
+        # All panels should have confidence 1.0 when scoring is skipped
+        for panel in result.panels:
+            assert panel.confidence == 1.0
+        # Page confidence should be 1.0
+        assert result.confidence == 1.0
 
 
 class TestConfidence:

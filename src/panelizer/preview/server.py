@@ -69,7 +69,31 @@ def _json_bytes(obj: Dict) -> bytes:
 DEFAULT_CACHE_SIZE = 20
 
 
-@dataclass(frozen=True)
+@dataclass
+class CVSettings:
+    """CV detection settings exposed in debug mode."""
+
+    min_panel_ratio: float = 0.1
+    min_segment_ratio: float = 0.05
+    # Post-processing (off by default to expose raw detection quality)
+    panel_expansion: bool = False
+    small_panel_grouping: bool = False
+    big_panel_grouping: bool = False
+    panel_splitting: bool = False  # Expensive O(n²) polygon splitting, often no-op
+    # Preprocessing
+    use_denoising: bool = True
+    use_canny: bool = False
+    use_morphological_close: bool = False
+    # LSD (Line Segment Detector) settings
+    max_segments: int = 500
+    prefer_axis_aligned: bool = True  # Prefer horizontal/vertical gutters
+    use_lsd_nfa: bool = False  # Use NFA quality scores (slower but more accurate)
+    # Performance
+    skip_scoring: bool = False  # Skip confidence scoring (faster CV-only mode)
+    max_dimension: int = 2000  # Downscale images larger than this (0 = no limit)
+
+
+@dataclass
 class PreviewConfig:
     file_path: Path
     reading_direction: ReadingDirection
@@ -89,7 +113,8 @@ class PreviewApp:
     def __init__(self, config: PreviewConfig) -> None:
         self.config = config
         self.extractor = Extractor(config.file_path)
-        self.cv_detector = CVDetector()
+        self.cv_settings = CVSettings()
+        self.cv_detector = self._build_cv_detector()
         self.ml_detector = None
         self.ml_fallback = config.ml_fallback
 
@@ -107,6 +132,82 @@ class PreviewApp:
         self._page_json_cache: LRUCache[int, Dict] = LRUCache(config.cache_size)
         self._lock = threading.Lock()
 
+    def _build_cv_detector(self) -> CVDetector:
+        """Build CV detector from current settings."""
+        s = self.cv_settings
+        return CVDetector(
+            min_panel_ratio=s.min_panel_ratio,
+            min_segment_ratio=s.min_segment_ratio,
+            panel_expansion=s.panel_expansion,
+            small_panel_grouping=s.small_panel_grouping,
+            big_panel_grouping=s.big_panel_grouping,
+            panel_splitting=s.panel_splitting,
+            use_denoising=s.use_denoising,
+            use_canny=s.use_canny,
+            use_morphological_close=s.use_morphological_close,
+            max_segments=s.max_segments,
+            prefer_axis_aligned=s.prefer_axis_aligned,
+            use_lsd_nfa=s.use_lsd_nfa,
+            skip_scoring=s.skip_scoring,
+            max_dimension=s.max_dimension,
+        )
+
+    def get_settings(self) -> Dict:
+        """Get current CV settings as dict."""
+        s = self.cv_settings
+        return {
+            "min_panel_ratio": s.min_panel_ratio,
+            "min_segment_ratio": s.min_segment_ratio,
+            "panel_expansion": s.panel_expansion,
+            "small_panel_grouping": s.small_panel_grouping,
+            "big_panel_grouping": s.big_panel_grouping,
+            "panel_splitting": s.panel_splitting,
+            "use_denoising": s.use_denoising,
+            "use_canny": s.use_canny,
+            "use_morphological_close": s.use_morphological_close,
+            "max_segments": s.max_segments,
+            "prefer_axis_aligned": s.prefer_axis_aligned,
+            "use_lsd_nfa": s.use_lsd_nfa,
+            "skip_scoring": s.skip_scoring,
+            "max_dimension": s.max_dimension,
+        }
+
+    def update_settings(self, updates: Dict) -> None:
+        """Update CV settings and rebuild detector."""
+        s = self.cv_settings
+        if "min_panel_ratio" in updates:
+            s.min_panel_ratio = float(updates["min_panel_ratio"])
+        if "min_segment_ratio" in updates:
+            s.min_segment_ratio = float(updates["min_segment_ratio"])
+        if "panel_expansion" in updates:
+            s.panel_expansion = updates["panel_expansion"] in (True, "true", "1", 1)
+        if "small_panel_grouping" in updates:
+            s.small_panel_grouping = updates["small_panel_grouping"] in (True, "true", "1", 1)
+        if "big_panel_grouping" in updates:
+            s.big_panel_grouping = updates["big_panel_grouping"] in (True, "true", "1", 1)
+        if "panel_splitting" in updates:
+            s.panel_splitting = updates["panel_splitting"] in (True, "true", "1", 1)
+        if "use_denoising" in updates:
+            s.use_denoising = updates["use_denoising"] in (True, "true", "1", 1)
+        if "use_canny" in updates:
+            s.use_canny = updates["use_canny"] in (True, "true", "1", 1)
+        if "use_morphological_close" in updates:
+            s.use_morphological_close = updates["use_morphological_close"] in (True, "true", "1", 1)
+        if "max_segments" in updates:
+            s.max_segments = int(updates["max_segments"])
+        if "prefer_axis_aligned" in updates:
+            s.prefer_axis_aligned = updates["prefer_axis_aligned"] in (True, "true", "1", 1)
+        if "use_lsd_nfa" in updates:
+            s.use_lsd_nfa = updates["use_lsd_nfa"] in (True, "true", "1", 1)
+        if "skip_scoring" in updates:
+            s.skip_scoring = updates["skip_scoring"] in (True, "true", "1", 1)
+        if "max_dimension" in updates:
+            s.max_dimension = int(updates["max_dimension"])
+
+        # Rebuild detector and clear cache
+        self.cv_detector = self._build_cv_detector()
+        self._page_json_cache.clear()
+
     def book_info(self) -> Dict:
         with self._lock:
             if self._book_hash is None:
@@ -123,7 +224,55 @@ class PreviewApp:
             "page_count": self.extractor.page_count(),
             "reading_direction": self.config.reading_direction.value,
             "tool_version": tool_version,
+            "debug": self.config.debug,
         }
+
+    def set_debug(self, enabled: bool) -> None:
+        """Toggle debug mode. Clears cache when changed."""
+        if self.config.debug != enabled:
+            self.config.debug = enabled
+            self._page_json_cache.clear()  # Re-detect with/without debug
+
+    def _get_debug_dir(self, page_index: int) -> Path:
+        """Get the debug output directory for a page."""
+        base = self.config.debug_dir or Path(f"{self.config.file_path}.debug")
+        return base / f"page-{page_index:04d}"
+
+    def debug_steps(self, page_index: int) -> list:
+        """Get list of debug steps for a page (from cached detection or disk)."""
+        debug_dir = self._get_debug_dir(page_index)
+        if not debug_dir.exists():
+            return []
+
+        # Find all debug images
+        steps = []
+        for img_path in sorted(debug_dir.glob("*.jpg")):
+            # Parse filename like "00-input.jpg" -> "input"
+            name = img_path.stem
+            if "-" in name:
+                name = name.split("-", 1)[1]
+            steps.append({"name": name, "file": img_path.name})
+        return steps
+
+    def _clear_debug_dir(self, page_index: int) -> None:
+        """Clear debug directory for a page before re-running detection."""
+        debug_dir = self._get_debug_dir(page_index)
+        if debug_dir.exists():
+            for f in debug_dir.glob("*.jpg"):
+                f.unlink()
+            for f in debug_dir.glob("*.html"):
+                f.unlink()
+
+    def debug_image(self, page_index: int, filename: str) -> Optional[bytes]:
+        """Get a debug image by filename."""
+        debug_dir = self._get_debug_dir(page_index)
+        img_path = debug_dir / filename
+        # Security: ensure we're not escaping debug_dir
+        if not img_path.resolve().is_relative_to(debug_dir.resolve()):
+            return None
+        if not img_path.exists():
+            return None
+        return img_path.read_bytes()
 
     def page_png(self, index: int, *, refresh: bool = False) -> bytes:
         if not refresh:
@@ -147,8 +296,8 @@ class PreviewApp:
         # Set up debug context if enabled
         debug_ctx = None
         if self.config.debug:
-            debug_dir = self.config.debug_dir or Path(f"{self.config.file_path}.debug")
-            page_debug_dir = debug_dir / f"page-{index:04d}"
+            self._clear_debug_dir(index)  # Clear old debug images
+            page_debug_dir = self._get_debug_dir(index)
             debug_ctx = DebugContext(enabled=True, output_dir=page_debug_dir)
 
         # Determine which detector to use
@@ -195,6 +344,7 @@ class PreviewApp:
             "cv_confidence": float(result.confidence),
             "gutters": result.gutters,
             "processing_time": result.processing_time,
+            "skip_scoring": self.cv_settings.skip_scoring,
         }
 
         self._page_json_cache.set(index, page)
@@ -246,6 +396,70 @@ def dispatch_request(app: PreviewApp, path: str, qs: Dict[str, list]) -> Tuple[i
                     "no-store",
                 )
 
+            # Debug toggle: /api/debug?set=1 or /api/debug?set=0
+            if path == "/api/debug":
+                if "set" in qs:
+                    app.set_debug(qs["set"][0] == "1")
+                return (
+                    HTTPStatus.OK,
+                    _json_bytes({"debug": app.config.debug}),
+                    "application/json; charset=utf-8",
+                    "no-store",
+                )
+
+            # CV settings: GET returns current, query params update
+            if path == "/api/settings":
+                # Parse updates from query string (all supported keys)
+                updates = {}
+                for key in [
+                    "min_panel_ratio",
+                    "min_segment_ratio",
+                    "panel_expansion",
+                    "small_panel_grouping",
+                    "big_panel_grouping",
+                    "panel_splitting",
+                    "use_denoising",
+                    "use_canny",
+                    "use_morphological_close",
+                    "max_segments",
+                    "prefer_axis_aligned",
+                    "use_lsd_nfa",
+                    "skip_scoring",
+                    "max_dimension",
+                ]:
+                    if key in qs:
+                        updates[key] = qs[key][0]
+                if updates:
+                    app.update_settings(updates)
+                return (
+                    HTTPStatus.OK,
+                    _json_bytes(app.get_settings()),
+                    "application/json; charset=utf-8",
+                    "no-store",
+                )
+
+            # Debug steps list: /api/page/{idx}/debug.json (must come before generic .json)
+            if path.startswith("/api/page/") and path.endswith("/debug.json"):
+                idx = int(path.removeprefix("/api/page/").removesuffix("/debug.json"))
+                return (
+                    HTTPStatus.OK,
+                    _json_bytes({"steps": app.debug_steps(idx)}),
+                    "application/json; charset=utf-8",
+                    "no-store",
+                )
+
+            # Debug image: /api/page/{idx}/debug/{filename}
+            if "/debug/" in path and path.startswith("/api/page/"):
+                # Parse /api/page/{idx}/debug/{filename}
+                rest = path.removeprefix("/api/page/")
+                idx_str, _, filename = rest.partition("/debug/")
+                idx = int(idx_str)
+                data = app.debug_image(idx, filename)
+                if data is None:
+                    return (HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8", "no-store")
+                return (HTTPStatus.OK, data, "image/jpeg", "no-store")
+
+            # Generic page JSON (after debug routes)
             if path.startswith("/api/page/") and path.endswith(".json"):
                 idx = int(path.removeprefix("/api/page/").removesuffix(".json"))
                 refresh = qs.get("refresh", ["0"])[0] == "1"

@@ -1,4 +1,5 @@
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import cv2 as cv
@@ -10,6 +11,15 @@ from .segment import Segment
 
 if TYPE_CHECKING:
     from .debug import DebugContext
+
+
+@dataclass
+class PipelineResult:
+    """Result from detect_panels containing panels and cached intermediate data."""
+
+    panels: List[InternalPanel]
+    split_coverages: List[float]
+    gray: np.ndarray  # Grayscale image (for confidence scoring)
 
 
 def denoise(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
@@ -56,59 +66,130 @@ def get_contours(edges: np.ndarray, use_otsu: bool = True) -> List[np.ndarray]:
     return list(contours)
 
 
-def detect_segments(gray: np.ndarray, img_size: Tuple[int, int], min_panel_ratio: float) -> List[Segment]:
+def _compute_axis_alignment(dx: float, dy: float) -> float:
+    """
+    Compute how axis-aligned a segment is (0-1 score).
+    1.0 = perfectly horizontal or vertical
+    0.0 = 45 degrees (worst case for gutter detection)
+    """
+    if dx == 0 and dy == 0:
+        return 0.0
+    # Angle from horizontal (0 to 90 degrees)
+    angle_rad = math.atan2(abs(dy), abs(dx))
+    angle_deg = math.degrees(angle_rad)
+    # Score: 0 deg or 90 deg = 1.0, 45 deg = 0.0
+    # Map: 0->1, 45->0, 90->1
+    if angle_deg <= 45:
+        return 1.0 - (angle_deg / 45.0)
+    else:
+        return (angle_deg - 45) / 45.0
+
+
+def detect_segments(
+    gray: np.ndarray,
+    img_size: Tuple[int, int],
+    min_segment_ratio: float,
+    *,
+    max_segments: int = 500,
+    prefer_axis_aligned: bool = True,
+    use_lsd_nfa: bool = False,
+) -> List[Segment]:
     """
     Detect line segments using LSD (Line Segment Detector).
-    Returns segments longer than minimum panel size threshold.
+    Returns segments longer than minimum threshold, capped at max_segments.
+
+    Args:
+        gray: Grayscale image
+        img_size: (width, height) tuple
+        min_segment_ratio: Minimum segment length as fraction of smaller image dimension
+        max_segments: Maximum segments to return
+        prefer_axis_aligned: Prefer horizontal/vertical segments (typical comic gutters)
+        use_lsd_nfa: Use LSD_REFINE_ADV mode for NFA quality scores (slower)
     """
-    lsd = cv.createLineSegmentDetector(0)
-    dlines = lsd.detect(gray)
+    # Choose LSD mode: ADV gives NFA quality scores but is slower
+    lsd_mode = cv.LSD_REFINE_ADV if use_lsd_nfa else cv.LSD_REFINE_NONE
+    lsd = cv.createLineSegmentDetector(lsd_mode)
+    result = lsd.detect(gray)
 
-    min_dist = min(img_size) * min_panel_ratio
-    segments = []
+    if result is None or result[0] is None:
+        return []
 
-    # Cap segments at 500 to avoid performance issues
-    while len(segments) == 0 or len(segments) > 500:
-        segments = []
+    lines = result[0]
+    # NFA scores available only in ADV mode: result = (lines, widths, precs, nfa)
+    nfa_scores = result[3] if use_lsd_nfa and len(result) > 3 and result[3] is not None else None
 
-        if dlines is None or dlines[0] is None:
-            break
+    min_dist = min(img_size) * min_segment_ratio
 
-        for dline in dlines[0]:
-            x0 = int(round(dline[0][0]))
-            y0 = int(round(dline[0][1]))
-            x1 = int(round(dline[0][2]))
-            y1 = int(round(dline[0][3]))
+    # Collect segments with scoring
+    scored_segments: List[Tuple[float, Segment]] = []
+    for i, dline in enumerate(lines):
+        x0 = int(round(dline[0][0]))
+        y0 = int(round(dline[0][1]))
+        x1 = int(round(dline[0][2]))
+        y1 = int(round(dline[0][3]))
 
-            a = x0 - x1
-            b = y0 - y1
-            dist = math.sqrt(a**2 + b**2)
-            if dist >= min_dist:
-                segments.append(Segment((x0, y0), (x1, y1)))
+        dx = x1 - x0
+        dy = y1 - y0
+        dist = math.sqrt(dx**2 + dy**2)
 
-        # If we got too many segments, raise threshold
-        if len(segments) > 500:
-            min_dist *= 1.1
-        else:
-            break
+        if dist < min_dist:
+            continue
 
-    return segments
+        # Base score is length (normalized by image size for consistency)
+        score = dist / min(img_size)
+
+        # Axis alignment bonus: multiply by 1.0-2.0 based on alignment
+        if prefer_axis_aligned:
+            alignment = _compute_axis_alignment(dx, dy)
+            score *= 1.0 + alignment  # Range: 1.0 (diagonal) to 2.0 (axis-aligned)
+
+        # NFA quality bonus: higher NFA = better detection confidence
+        # NFA is log-scale, typically -1 (weak) to 10+ (strong)
+        if nfa_scores is not None:
+            nfa = float(nfa_scores[i][0])
+            # Map NFA to multiplier: -1->0.5, 0->1.0, 5->1.5, 10->2.0
+            nfa_mult = max(0.5, min(2.0, 1.0 + nfa / 10.0))
+            score *= nfa_mult
+
+        scored_segments.append((score, Segment((x0, y0), (x1, y1))))
+
+    # Keep highest-scoring segments
+    if len(scored_segments) > max_segments:
+        scored_segments.sort(key=lambda x: x[0], reverse=True)
+        scored_segments = scored_segments[:max_segments]
+
+    return [seg for _, seg in scored_segments]
 
 
 def initial_panels(
-    contours: List[np.ndarray], img_size: Tuple[int, int], min_panel_ratio: float
+    contours: List[np.ndarray],
+    img_size: Tuple[int, int],
+    min_panel_ratio: float,
+    *,
+    use_polygon: bool = False,
 ) -> List[InternalPanel]:
     """
-    Convert contours to initial panel polygons.
+    Convert contours to initial panel bounding boxes.
     Filters out very small contours.
+
+    Args:
+        contours: List of contours from findContours
+        img_size: Image (width, height)
+        min_panel_ratio: Minimum panel size ratio
+        use_polygon: If True, use approxPolyDP for polygon data (needed for splitting).
+                     If False, use boundingRect only (faster, simpler).
     """
     panels = []
     for contour in contours:
-        arclength = cv.arcLength(contour, True)
-        epsilon = 0.001 * arclength
-        approx = cv.approxPolyDP(contour, epsilon, True)
+        if use_polygon:
+            arclength = cv.arcLength(contour, True)
+            epsilon = 0.001 * arclength
+            approx = cv.approxPolyDP(contour, epsilon, True)
+            panel = InternalPanel(img_size, min_panel_ratio, polygon=approx)
+        else:
+            x, y, w, h = cv.boundingRect(contour)
+            panel = InternalPanel(img_size, min_panel_ratio, xywh=(x, y, w, h))
 
-        panel = InternalPanel(img_size, min_panel_ratio, polygon=approx)
         if panel.is_very_small():
             continue
 
@@ -355,16 +436,17 @@ def expand_panels(panels: List[InternalPanel]) -> List[InternalPanel]:
     return panels
 
 
-def remove_contained_panels(panels: List[InternalPanel], threshold: float = 0.9) -> List[InternalPanel]:
+def remove_contained_panels(
+    panels: List[InternalPanel], threshold: float = 0.9, *, prefer_smaller: bool = True
+) -> List[InternalPanel]:
     """
     Remove panels that are almost entirely contained within another panel.
-
-    These are likely false positives (speech bubbles, artwork elements).
-    Run as final cleanup after all other processing.
 
     Args:
         panels: List of panels to filter
         threshold: Remove panel if this fraction is inside another (default 0.9 = 90%)
+        prefer_smaller: If True, keep smaller panels (better segmentation).
+                       If False, keep larger panels (original behavior for speech bubbles).
     """
     to_remove: List[InternalPanel] = []
 
@@ -380,9 +462,13 @@ def remove_contained_panels(panels: List[InternalPanel], threshold: float = 0.9)
             # Check if p1 is mostly inside p2
             p1_area = p1.area()
             if p1_area > 0 and overlap.area() / p1_area >= threshold:
-                # p1 is contained in p2, mark for removal
-                # Keep the larger panel (p2)
-                to_remove.append(p1)
+                # p1 is contained in p2
+                if prefer_smaller:
+                    # Keep smaller panels (better segmentation) - remove the container
+                    to_remove.append(p2)
+                else:
+                    # Keep larger panel (original behavior) - remove the contained
+                    to_remove.append(p1)
                 break
 
     return [p for p in panels if p not in to_remove]
@@ -440,29 +526,42 @@ def detect_panels(
     img: np.ndarray,
     min_panel_ratio: float = 0.1,
     *,
-    panel_expansion: bool = True,
-    small_panel_grouping: bool = True,
-    big_panel_grouping: bool = True,
+    min_segment_ratio: Optional[float] = None,
+    panel_expansion: bool = False,
+    small_panel_grouping: bool = False,
+    big_panel_grouping: bool = False,
+    panel_splitting: bool = False,
     use_denoising: bool = True,
     use_canny: bool = False,
-    use_morphological_close: bool = True,
+    use_morphological_close: bool = False,
+    max_segments: int = 500,
+    prefer_axis_aligned: bool = True,
+    use_lsd_nfa: bool = False,
     debug: Optional["DebugContext"] = None,
-) -> Tuple[List[InternalPanel], List[float]]:
+) -> PipelineResult:
     """
     Main detection pipeline.
-    Returns panels and list of split coverage scores for confidence calculation.
+    Returns PipelineResult with panels, split coverages, and cached intermediate data.
 
     Args:
         img: BGR image (OpenCV format)
         min_panel_ratio: Minimum panel size as fraction of image dimensions
+        min_segment_ratio: Minimum segment length as fraction of image (default: min_panel_ratio / 2)
         panel_expansion: Whether to expand panels to fill gutters
         small_panel_grouping: Whether to group small nearby panels
         big_panel_grouping: Whether to group large adjacent panels
+        panel_splitting: Whether to split panels using detected segments (expensive)
         use_denoising: Whether to apply Gaussian blur before edge detection
         use_canny: Whether to use Canny edges (True) or Sobel edges (False)
         use_morphological_close: Whether to apply morphological closing to bridge edge gaps
+        max_segments: Maximum segments to keep from LSD
+        prefer_axis_aligned: Prefer horizontal/vertical segments for gutters
+        use_lsd_nfa: Use LSD NFA quality scores for filtering
         debug: Optional debug context for step-by-step visualization
     """
+    # Default segment ratio is half of panel ratio (keep shorter lines)
+    if min_segment_ratio is None:
+        min_segment_ratio = min_panel_ratio / 2
     img_size = (img.shape[1], img.shape[0])  # (width, height)
 
     # Debug: set base image
@@ -506,16 +605,26 @@ def detect_panels(
         debug.add_step("Contours detected", [])
         debug.add_image("Contours")
 
-    # 5. LSD gutter detection (on processed grayscale for better structural line focus)
-    segments = detect_segments(gray_processed, img_size, min_panel_ratio)
-    segments = Segment.union_all(segments)
-    if debug and debug.enabled:
-        debug.draw_segments(segments)
-        debug.add_step("Segments detected", [])
-        debug.add_image("Segments")
+    # 5. LSD gutter detection (only needed for splitting or big panel grouping)
+    segments: List[Segment] = []
+    if panel_splitting or big_panel_grouping:
+        segments = detect_segments(
+            gray_processed,
+            img_size,
+            min_segment_ratio,
+            max_segments=max_segments,
+            prefer_axis_aligned=prefer_axis_aligned,
+            use_lsd_nfa=use_lsd_nfa,
+        )
+        if debug and debug.enabled:
+            debug.draw_segments(segments)
+            debug.add_step("Segments detected", [])
+            debug.add_image("Segments")
 
     # 6. Initial panels from contours
-    panels = initial_panels(contours, img_size, min_panel_ratio)
+    # Use polygon approximation when splitting or grouping needs polygon data
+    use_polygon = panel_splitting or big_panel_grouping
+    panels = initial_panels(contours, img_size, min_panel_ratio, use_polygon=use_polygon)
     if debug and debug.enabled:
         debug.draw_panels(panels)
         debug.add_step("Initial panels", panels)
@@ -528,18 +637,22 @@ def detect_panels(
             debug.add_step("Small panels grouped", panels)
             debug.add_image("Small panels grouped")
 
-    # 5. Refinement passes
-    # Split panels using segments (pass grayscale for gutter color validation)
-    panels, split_coverages = split_panels(panels, segments, gray=gray)
-    if debug and debug.enabled:
-        debug.draw_panels(panels)
-        debug.add_step("Panels split", panels)
-        debug.add_image("Panels split")
+    # 7. Panel splitting (expensive O(n²) polygon ops, often no-op)
+    split_coverages: List[float] = []
+    if panel_splitting:
+        panels, split_coverages = split_panels(panels, segments, gray=gray)
+        if debug and debug.enabled:
+            debug.draw_panels(panels)
+            debug.add_step("Panels split", panels)
+            debug.add_image("Panels split")
 
+    # 8. Refinement: filter small, merge overlaps, deoverlap
     panels = exclude_small(panels, min_panel_ratio)
-    panels = merge_panels(panels)
-    panels = deoverlap_panels(panels)
-    panels = exclude_small(panels, min_panel_ratio)
+    # merge_panels and deoverlap_panels only needed when splitting creates overlaps
+    if panel_splitting:
+        panels = merge_panels(panels)
+        panels = deoverlap_panels(panels)
+        panels = exclude_small(panels, min_panel_ratio)
     if debug and debug.enabled:
         debug.draw_panels(panels)
         debug.add_step("Panels refined", panels)
@@ -576,4 +689,8 @@ def detect_panels(
         debug.add_step("Final result", panels)
         debug.add_image("Final result")
 
-    return panels, split_coverages
+    return PipelineResult(
+        panels=panels,
+        split_coverages=split_coverages,
+        gray=gray,
+    )

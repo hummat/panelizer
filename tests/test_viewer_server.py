@@ -45,6 +45,13 @@ class TestStaticAssets:
         text = data.decode("utf-8")
         assert "Panel conf" in text
 
+    def test_app_js_scales_overlay_for_debug_images(self) -> None:
+        data, _content_type = _static_bytes("/app.js")
+        text = data.decode("utf-8")
+        assert "imageScaleFromPageToCurrentImage" in text
+        assert "state.page?.size" in text
+        assert "els.img.naturalWidth" in text
+
 
 class TestViewerApp:
     def test_book_info_and_page_endpoints_single_image(self) -> None:
