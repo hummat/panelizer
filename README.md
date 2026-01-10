@@ -1,5 +1,7 @@
 # Panelizer
 
+> **Note:** This project is archived and not actively maintained. The research and architecture documentation may still be useful to others working on similar problems.
+
 A pragmatic, human-in-the-loop system for **panel-by-panel comic reading** from **local, DRM-free files** (CBZ/PDF), combining classic computer vision, modern foundation models, and a lightweight cross-platform viewer.
 
 > Motivation: there is currently **no good open solution** for Guided-View-style reading of local comics. Existing readers rely on heuristics; research code stops at detection; commercial solutions are locked ecosystems.
@@ -308,12 +310,9 @@ Design notes:
 
 ## Status
 
-🚧 **Early design / prototyping**
+📦 **Archived**
 
-Current focus:
-- Finalizing architecture
-- CV detector prototype
-- Evaluating YOLO model
+This project reached early prototyping stage with working CV and YOLO detection. Development is paused indefinitely, but the codebase and research documentation are available for reference.
 
 ---
 
