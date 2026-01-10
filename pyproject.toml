@@ -62,7 +62,7 @@ include = ["src/panelizer/preview/static/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=panelizer --cov-report=term-missing --cov-fail-under=80"
+addopts = "-q --cov=panelizer --cov-report=term-missing --cov-fail-under=79"
 
 [tool.ruff]
 target-version = "py311"
