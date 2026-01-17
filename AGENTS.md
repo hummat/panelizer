@@ -1,6 +1,13 @@
 # AGENTS.md
 
-This file provides guidance to CLI coding agents when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
+
+## Conventions
+
+Read relevant `docs/agent/` files before proceeding:
+- `workflow.md` — **read before starting any feature** (issues, branching, PRs)
+
+---
 
 ## Project Overview
 
